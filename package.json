@@ -1,0 +1,78 @@
+{
+  "name": "mcp-postmessage-reference",
+  "version": "0.1.0",
+  "description": "Reference implementation for MCP PostMessage transport",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot server.ts",
+    "build": "bun run build.ts",
+    "build:sdk": "bun build --target=bun --outdir=./dist --entrypoints=./src/sdk/client/transport.ts ./src/sdk/server/transport.ts",
+    "demo": "./run-demo.sh",
+    "demo:client": "cd src/demo/client && bun --port 3000 index.html --hot",
+    "demo:pi": "cd src/demo/servers/pi-calculator && bun --port 3001 index.html --hot",
+    "demo:mermaid": "cd src/demo/servers/mermaid-editor && bun --port 3001 index.html --hot",
+    "demo:json": "cd src/demo/servers/json-analyzer && bun --port 3001 index.html --hot",
+    "type-check": "bunx tsc --noEmit",
+    "preview": "cd dist && bun --port 3000 ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.16.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "exports": {
+    "./client": {
+      "import": "./src/sdk/client/transport.js",
+      "types": "./src/sdk/client/transport.d.ts"
+    },
+    "./server": {
+      "import": "./src/sdk/server/transport.js",
+      "types": "./src/sdk/server/transport.d.ts"
+    },
+    "./types": {
+      "import": "./src/sdk/types/postmessage.js",
+      "types": "./src/sdk/types/postmessage.d.ts"
+    },
+    "./utils": {
+      "import": "./src/sdk/utils/helpers.js",
+      "types": "./src/sdk/utils/helpers.d.ts"
+    },
+    "./window-control": {
+      "import": "./src/sdk/client/window-control.js",
+      "types": "./src/sdk/client/window-control.d.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "dist/",
+    "*.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postmessage",
+    "transport",
+    "browser",
+    "typescript"
+  ],
+  "author": "MCP PostMessage Transport Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/modelcontextprotocol/mcp-postmessage-reference"
+  },
+  "bugs": {
+    "url": "https://github.com/modelcontextprotocol/mcp-postmessage-reference/issues"
+  },
+  "homepage": "https://github.com/modelcontextprotocol/mcp-postmessage-reference#readme"
+}

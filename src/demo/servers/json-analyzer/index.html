@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Analyzer MCP Server</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: white;
+            color: #2d3436;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            background: white;
+            padding: 1rem;
+            text-align: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        
+        .json-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.8;
+        }
+        
+        .setup-content {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .setup-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            color: #2d3436;
+        }
+        
+        .setup-description {
+            color: #636e72;
+            line-height: 1.6;
+            margin: 0;
+        }
+        
+        .file-input-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            width: 100%;
+        }
+        
+        .file-input {
+            position: absolute;
+            left: -9999px;
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .file-button {
+            background: #e17055;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: calc(100% - 2rem);
+            box-sizing: border-box;
+            margin: 0 auto;
+        }
+        
+        .file-button:hover {
+            background: #d63031;
+            transform: translateY(-2px);
+        }
+        
+        .file-button:disabled {
+            background: #b2bec3;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-message {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            margin: 0;
+        }
+        
+        .status-success {
+            background: #d1f2eb;
+            color: #00b894;
+            border: 1px solid #00b894;
+        }
+        
+        .status-error {
+            background: #ffeaa7;
+            color: #e17055;
+            border: 1px solid #e17055;
+        }
+        
+        .status-loading {
+            background: #ddd6fe;
+            color: #6c5ce7;
+            border: 1px solid #6c5ce7;
+        }
+        
+        .file-display {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #dee2e6;
+            font-family: Monaco, Consolas, monospace;
+            font-size: 0.875rem;
+            color: #495057;
+            text-align: left;
+        }
+        
+        .file-name {
+            font-weight: 600;
+            color: #e17055;
+            margin-bottom: 0.5rem;
+        }
+        
+        .file-size {
+            color: #6b7280;
+            font-size: 0.8rem;
+        }
+        
+        .json-preview {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: Monaco, Consolas, monospace;
+            font-size: 0.75rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .transport-phase {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .file-stats {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #dee2e6;
+            margin: 1rem 0;
+            text-align: left;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            font-weight: 500;
+            color: #495057;
+        }
+        
+        .stat-value {
+            font-family: Monaco, Consolas, monospace;
+            color: #e17055;
+            font-weight: 600;
+        }
+        
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+        }
+        
+        .loading-spinner {
+            width: 2rem;
+            height: 2rem;
+            border: 3px solid #e2e8f0;
+            border-top: 3px solid #e17055;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Initializing JSON analyzer...</p>
+        </div>
+        
+        <div id="setup-phase" class="setup-content hidden">
+            <div class="json-icon">📋</div>
+            <h1 class="setup-title">JSON Analyzer Setup</h1>
+            <p class="setup-description">
+                This server analyzes JSON files using JSONPath expressions. 
+                Choose a JSON file to get started.
+            </p>
+            <p class="setup-description">
+                <strong>Privacy:</strong> Your file is processed locally in the browser 
+                and never uploaded to any server.
+            </p>
+            
+            <div class="file-input-container">
+                <input type="file" id="file-input" class="file-input" accept=".json">
+                <button type="button" class="file-button">
+                    <span>📄</span>
+                    Choose JSON File
+                </button>
+            </div>
+            
+            <div id="status-message" class="status-message hidden"></div>
+            <div id="file-display" class="file-display hidden"></div>
+        </div>
+        
+        <div id="transport-phase" class="transport-phase hidden">
+            <div class="json-icon">📋</div>
+            <h1 class="setup-title">JSON Analyzer</h1>
+            <p class="setup-description">
+                Connected and ready to analyze your JSON file.
+            </p>
+            
+            <div class="file-stats">
+                <div class="stat-item">
+                    <span class="stat-label">File:</span>
+                    <span class="stat-value" id="file-name-display">Loading...</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Size:</span>
+                    <span class="stat-value" id="file-size-display">0 bytes</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Status:</span>
+                    <span class="stat-value">Ready</span>
+                </div>
+            </div>
+            
+            <p class="setup-description">
+                Available tools: <strong>evaluate_jsonpath</strong>
+            </p>
+        </div>
+    </div>
+    
+    <script type="module" src="./server.ts"></script>
+</body>
+</html>

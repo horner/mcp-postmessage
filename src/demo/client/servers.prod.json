@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Pi Calculator",
+    "url": "./servers/pi-calculator/"
+  },
+  {
+    "name": "Mermaid Diagram Editor", 
+    "url": "./servers/mermaid-editor/"
+  },
+  {
+    "name": "JSON Analyzer",
+    "url": "./servers/json-analyzer/"
+  }
+]

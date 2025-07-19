@@ -1,0 +1,652 @@
+/**
+ * JSON Analyzer MCP Server
+ * Demonstrates visible setup phase with file picker for JSON analysis
+ */
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { 
+  PostMessageSetupHelper, 
+  PostMessageServerTransport 
+} from '$sdk/server/transport.js';
+import { 
+  getServerPhase, 
+  isInWindowContext,
+  generateUUID 
+} from '$sdk/utils/helpers.js';
+
+// ============================================================================
+// JSON FILE SERVICE
+// ============================================================================
+
+interface JSONFileData {
+  filename: string;
+  size: number;
+  content: any;
+  timestamp: number;
+}
+
+class JSONFileService {
+  private static readonly STORAGE_KEY_PREFIX = 'json-analyzer-file';
+  private static fileData: JSONFileData | null = null;
+  private static currentSessionId: string | null = null;
+
+  /**
+   * Set the session ID for scoped storage
+   */
+  static setSessionId(sessionId: string) {
+    this.currentSessionId = sessionId;
+  }
+
+  /**
+   * Get the storage key for current session
+   */
+  private static getStorageKey(): string {
+    if (!this.currentSessionId) {
+      throw new Error('Session ID not set - call setSessionId() first');
+    }
+    return `${this.STORAGE_KEY_PREFIX}-${this.currentSessionId}`;
+  }
+
+  /**
+   * Load JSON file from file input
+   */
+  static async loadFile(file: File): Promise<JSONFileData> {
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      throw new Error('Please select a JSON file (.json extension required)');
+    }
+
+    try {
+      const text = await file.text();
+      const content = JSON.parse(text);
+      
+      const fileData: JSONFileData = {
+        filename: file.name,
+        size: file.size,
+        content: content,
+        timestamp: Date.now()
+      };
+      
+      // Store file data in memory and localStorage (including content)
+      this.fileData = fileData;
+      localStorage.setItem(this.getStorageKey(), JSON.stringify(fileData));
+      console.log('[JSON] File stored in session-scoped localStorage:', { filename: fileData.filename, size: fileData.size, sessionId: this.currentSessionId });
+      
+      return fileData;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error('Invalid JSON file - please check the syntax');
+      }
+      throw new Error(`Failed to load file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get loaded file data
+   */
+  static getFileData(): JSONFileData | null {
+    if (this.fileData) {
+      return this.fileData;
+    }
+    
+    // Try to load from localStorage
+    try {
+      const stored = localStorage.getItem(this.getStorageKey());
+      if (stored) {
+        const parsedData = JSON.parse(stored);
+        // Check if it has the content field (new format)
+        if (parsedData.content) {
+          this.fileData = parsedData;
+          return this.fileData;
+        }
+      }
+    } catch (error) {
+      console.error('CRITICAL: Failed to load file data from localStorage:', error);
+      throw new Error(`Failed to restore JSON file data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Get stored file metadata
+   */
+  static getStoredFileInfo(): { filename: string; size: number; timestamp: number } | null {
+    try {
+      const stored = localStorage.getItem(this.getStorageKey());
+      if (stored) {
+        const parsedData = JSON.parse(stored);
+        // Return just the metadata fields
+        return {
+          filename: parsedData.filename,
+          size: parsedData.size,
+          timestamp: parsedData.timestamp
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('CRITICAL: Failed to load file metadata from localStorage:', error);
+      throw new Error(`Failed to restore JSON file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Clear stored file
+   */
+  static clearStoredFile(): void {
+    localStorage.removeItem(this.getStorageKey());
+    this.fileData = null;
+  }
+
+  /**
+   * Generate example JSONPath based on file structure
+   */
+  static generateExample(data: any, maxDepth: number = 2): string {
+    const explore = (obj: any, currentPath: string = '$', depth: number = 0): string[] => {
+      if (depth >= maxDepth || obj === null || obj === undefined) {
+        return [];
+      }
+      
+      const paths: string[] = [];
+      
+      if (Array.isArray(obj)) {
+        if (obj.length > 0) {
+          paths.push(`${currentPath}[0]`);
+          paths.push(...explore(obj[0], `${currentPath}[0]`, depth + 1));
+        }
+      } else if (typeof obj === 'object') {
+        const keys = Object.keys(obj);
+        for (const key of keys.slice(0, 3)) { // Limit to first 3 keys
+          const newPath = currentPath === '$' ? `$.${key}` : `${currentPath}.${key}`;
+          paths.push(newPath);
+          paths.push(...explore(obj[key], newPath, depth + 1));
+        }
+      }
+      
+      return paths;
+    };
+    
+    const paths = explore(data);
+    return paths.length > 0 ? paths[0] : '$.data';
+  }
+
+  /**
+   * Simple JSONPath evaluation (basic implementation)
+   */
+  static evaluateJSONPath(path: string, data: any): any {
+    // This is a simplified JSONPath implementation
+    // For production, you'd want to use a proper JSONPath library
+    
+    // Handle root path
+    if (path === '$' || path === '') {
+      return data;
+    }
+    
+    // Remove leading $ if present
+    const cleanPath = path.startsWith('$') ? path.substring(1) : path;
+    
+    // Split path and navigate
+    const parts = cleanPath.split('.').filter(part => part !== '');
+    let current = data;
+    
+    for (const part of parts) {
+      // Handle array notation like [0] or ["key"]
+      if (part.includes('[') && part.includes(']')) {
+        const [property, indexPart] = part.split('[');
+        const index = indexPart.replace(']', '').replace(/"/g, '');
+        
+        if (property) {
+          current = current[property];
+        }
+        
+        if (current === undefined || current === null) {
+          return undefined;
+        }
+        
+        // Try as array index first, then as object key
+        if (Array.isArray(current)) {
+          const numIndex = parseInt(index);
+          current = isNaN(numIndex) ? current[index] : current[numIndex];
+        } else {
+          current = current[index];
+        }
+      } else {
+        current = current[part];
+      }
+      
+      if (current === undefined || current === null) {
+        return undefined;
+      }
+    }
+    
+    return current;
+  }
+}
+
+// ============================================================================
+// UI MANAGEMENT
+// ============================================================================
+
+class JSONAnalyzerUI {
+  private fileInput: HTMLInputElement;
+  private statusMessage: HTMLElement;
+  private fileDisplay: HTMLElement;
+  private onFileLoadedCallback?: () => void;
+  
+  constructor(onFileLoaded?: () => void) {
+    this.onFileLoadedCallback = onFileLoaded;
+    this.fileInput = document.getElementById('file-input') as HTMLInputElement;
+    this.statusMessage = document.getElementById('status-message') as HTMLElement;
+    this.fileDisplay = document.getElementById('file-display') as HTMLElement;
+    
+    this.setupEventListeners();
+  }
+  
+  private setupEventListeners(): void {
+    this.fileInput.addEventListener('change', (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (files && files.length > 0) {
+        this.loadFile(files[0]);
+      }
+    });
+    
+    // Add click handler to the button to explicitly trigger file input
+    const fileButton = document.querySelector('.file-button') as HTMLButtonElement;
+    if (fileButton) {
+      fileButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.fileInput.click();
+      });
+    }
+  }
+  
+  private async loadFile(file: File): Promise<void> {
+    this.showStatus('Loading JSON file...', 'loading');
+    
+    try {
+      const fileData = await JSONFileService.loadFile(file);
+      this.showFileSuccess(fileData);
+      
+      // Trigger setup completion callback
+      if (this.onFileLoadedCallback) {
+        console.log('[JSON UI] File loaded, triggering setup completion');
+        this.onFileLoadedCallback();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load file';
+      this.showStatus(message, 'error');
+    }
+  }
+  
+  private showFileSuccess(fileData: JSONFileData): void {
+    this.showStatus('JSON file loaded successfully!', 'success');
+    
+    // Preview first few lines of JSON
+    const preview = JSON.stringify(fileData.content, null, 2);
+    const truncatedPreview = preview.length > 200 ? 
+      preview.substring(0, 200) + '...' : preview;
+    
+    this.fileDisplay.innerHTML = `
+      <div class="file-name">${fileData.filename}</div>
+      <div class="file-size">${this.formatFileSize(fileData.size)}</div>
+      <div class="json-preview">${truncatedPreview}</div>
+    `;
+    this.fileDisplay.classList.remove('hidden');
+  }
+  
+  private showStatus(message: string, type: 'success' | 'error' | 'loading'): void {
+    this.statusMessage.textContent = message;
+    this.statusMessage.className = `status-message status-${type}`;
+    this.statusMessage.classList.remove('hidden');
+  }
+  
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 bytes';
+    const k = 1024;
+    const sizes = ['bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+  
+  checkExistingFile(): boolean {
+    const stored = JSONFileService.getStoredFileInfo();
+    if (stored) {
+      this.showStatus('Previously loaded file available - choose an option below', 'success');
+      this.fileDisplay.innerHTML = `
+        <div class="file-name">${stored.filename}</div>
+        <div class="file-size">${this.formatFileSize(stored.size)}</div>
+        <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #6b7280;">
+          Loaded ${new Date(stored.timestamp).toLocaleString()}
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+          <button id="use-existing-file-btn" style="
+            flex: 1;
+            padding: 0.75rem;
+            background: #22c55e;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+          ">
+            ✅ Use This File
+          </button>
+          <button id="delete-file-btn" style="
+            padding: 0.75rem;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 100px;
+          ">
+            🗑️ Delete
+          </button>
+        </div>
+      `;
+      this.fileDisplay.classList.remove('hidden');
+      
+      // Add click handlers for buttons
+      const useFileBtn = document.getElementById('use-existing-file-btn');
+      const deleteFileBtn = document.getElementById('delete-file-btn');
+      
+      if (useFileBtn) {
+        useFileBtn.addEventListener('click', () => {
+          console.log('[JSON UI] User confirmed existing file, triggering setup completion');
+          if (this.onFileLoadedCallback) {
+            this.onFileLoadedCallback();
+          }
+        });
+        
+        // Add hover effect
+        useFileBtn.addEventListener('mouseenter', () => {
+          useFileBtn.style.background = '#16a34a';
+          useFileBtn.style.transform = 'translateY(-2px)';
+        });
+        useFileBtn.addEventListener('mouseleave', () => {
+          useFileBtn.style.background = '#22c55e';
+          useFileBtn.style.transform = 'translateY(0)';
+        });
+      }
+      
+      if (deleteFileBtn) {
+        deleteFileBtn.addEventListener('click', () => {
+          console.log('[JSON UI] User deleted existing file');
+          JSONFileService.clearStoredFile();
+          this.showStatus('File deleted. Please select a new JSON file.', 'success');
+          this.fileDisplay.classList.add('hidden');
+        });
+        
+        // Add hover effect
+        deleteFileBtn.addEventListener('mouseenter', () => {
+          deleteFileBtn.style.background = '#dc2626';
+          deleteFileBtn.style.transform = 'translateY(-2px)';
+        });
+        deleteFileBtn.addEventListener('mouseleave', () => {
+          deleteFileBtn.style.background = '#ef4444';
+          deleteFileBtn.style.transform = 'translateY(0)';
+        });
+      }
+      
+      return true;
+    }
+    return false;
+  }
+  
+  updateTransportPhase(): void {
+    const stored = JSONFileService.getStoredFileInfo();
+    if (stored) {
+      const fileNameEl = document.getElementById('file-name-display');
+      const fileSizeEl = document.getElementById('file-size-display');
+      
+      if (fileNameEl) fileNameEl.textContent = stored.filename;
+      if (fileSizeEl) fileSizeEl.textContent = this.formatFileSize(stored.size);
+    }
+  }
+}
+
+// ============================================================================
+// MCP SERVER FACTORY
+// ============================================================================
+
+function getJSONAnalyzerServer(): McpServer {
+  const server = new McpServer({
+    name: 'json-analyzer',
+    version: '1.0.0',
+  });
+
+  // Get the loaded file to generate a realistic example
+  const fileData = JSONFileService.getFileData();
+  const example = fileData ? JSONFileService.generateExample(fileData.content) : '$.data';
+
+  // Register the evaluate_jsonpath tool
+  server.registerTool(
+    'evaluate_jsonpath',
+    {
+      title: 'Evaluate JSONPath',
+      description: 'Evaluate a JSONPath expression against the loaded JSON file',
+      inputSchema: {
+        path: z.string().describe(`JSONPath expression to evaluate. Example: ${example}`)
+      }
+    },
+    async ({ path }) => {
+      console.log(`[SERVER] Tool call received: evaluate_jsonpath with path: ${path}`);
+      
+      try {
+        const fileData = JSONFileService.getFileData();
+        
+        if (!fileData) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: '❌ No JSON file loaded. Please run setup again to select a file.'
+              }
+            ]
+          };
+        }
+        
+        const result = JSONFileService.evaluateJSONPath(path, fileData.content);
+        
+        if (result === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ **JSONPath Not Found**\n\nPath: \`${path}\`\nFile: ${fileData.filename}\n\nThe specified path does not exist in the JSON data.`
+              }
+            ]
+          };
+        }
+        
+        // Format result based on type
+        let formattedResult: string;
+        if (typeof result === 'object') {
+          formattedResult = JSON.stringify(result, null, 2);
+        } else {
+          formattedResult = String(result);
+        }
+        
+        const response = {
+          content: [
+            {
+              type: 'text',
+              text: `✅ **JSONPath Result**\n\nPath: \`${path}\`\nFile: ${fileData.filename}\n\n\`\`\`json\n${formattedResult}\n\`\`\`\n\n**Type:** ${typeof result}${Array.isArray(result) ? ' (array)' : ''}`
+            }
+          ]
+        };
+        
+        console.log(`[SERVER] JSONPath evaluation successful for path: ${path}`);
+        return response;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'JSONPath evaluation failed';
+        console.log(`[SERVER] Tool call error:`, errorMessage);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `❌ Error evaluating JSONPath: ${errorMessage}`
+            }
+          ]
+        };
+      }
+    }
+  );
+
+  return server;
+}
+
+// ============================================================================
+// JSON ANALYZER SERVER MAIN CLASS
+// ============================================================================
+
+class JSONAnalyzerServer {
+  private server: McpServer | null = null;
+  private ui: JSONAnalyzerUI | null = null;
+  private setupHelper: PostMessageSetupHelper | null = null;
+  
+  async start(): Promise<void> {
+    const phase = getServerPhase();
+    
+    if (phase === 'setup') {
+      await this.startSetupPhase();
+    } else {
+      await this.startTransportPhase();
+    }
+  }
+  
+  private async startSetupPhase(): Promise<void> {
+    console.log('[JSON SETUP] Starting setup phase for JSON Analyzer');
+    
+    this.setupHelper = new PostMessageSetupHelper({
+      allowedOrigins: ['*'],
+      requiresVisibleSetup: true
+    });
+    
+    // Wait for handshake
+    await this.setupHelper.waitForHandshake();
+    console.log('[JSON SETUP] Handshake completed');
+    
+    // Set session ID for scoped storage
+    const sessionId = this.setupHelper.sessionId;
+    if (sessionId) {
+      JSONFileService.setSessionId(sessionId);
+      console.log('[JSON SETUP] Session ID set for storage:', sessionId);
+    }
+    
+    // Now show setup UI
+    this.showPhase('setup');
+    
+    // Initialize UI with setup completion callback
+    this.ui = new JSONAnalyzerUI(() => {
+      // Callback when file is loaded - complete setup
+      console.log('[JSON SETUP] User interaction complete, finishing setup');
+      this.setupHelper!.completeSetup({
+        serverTitle: 'JSON Analyzer',
+        transportVisibility: {
+          requirement: 'hidden',
+          optionalMessage: 'JSON analysis works in the background'
+        },
+        ephemeralMessage: 'JSON file ready for analysis!'
+      });
+    });
+    
+    // Check if file was previously loaded and show appropriate UI
+    this.ui.checkExistingFile();
+    console.log('[JSON SETUP] UI initialized, waiting for user interaction...');
+  }
+  
+  private async startTransportPhase(): Promise<void> {
+    // Show transport UI
+    this.showPhase('transport');
+    
+    // Create transport and wait for connection to get session ID
+    const transport = new PostMessageServerTransport({
+      allowedOrigins: ['*']
+    });
+    
+    // Set up transport connection first
+    await transport.start();
+    
+    // Get session ID and set it for scoped storage
+    const sessionId = transport.sessionId;
+    if (sessionId) {
+      JSONFileService.setSessionId(sessionId);
+      console.log('[JSON TRANSPORT] Session ID set for storage:', sessionId);
+    }
+    
+    // Initialize UI for transport display
+    this.ui = new JSONAnalyzerUI();
+    this.ui.updateTransportPhase();
+    
+    // Create MCP server (now that we have session ID for file data)
+    this.server = getJSONAnalyzerServer();
+    
+    await this.server.connect(transport);
+  }
+  
+  private showPhase(phase: 'setup' | 'transport'): void {
+    const loading = document.getElementById('loading');
+    const setupPhase = document.getElementById('setup-phase');
+    const transportPhase = document.getElementById('transport-phase');
+    
+    if (loading) loading.classList.add('hidden');
+    
+    if (phase === 'setup') {
+      setupPhase?.classList.remove('hidden');
+      transportPhase?.classList.add('hidden');
+    } else {
+      setupPhase?.classList.add('hidden');
+      transportPhase?.classList.remove('hidden');
+    }
+  }
+  
+  private showError(message: string): void {
+    const container = document.querySelector('.container');
+    if (container) {
+      container.innerHTML = `
+        <div style="text-align: center; padding: 2rem; color: #e17055;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
+          <h2 style="margin: 0 0 1rem 0; color: #e17055;">Error</h2>
+          <p style="margin: 0; color: #636e72;">${message}</p>
+        </div>
+      `;
+    }
+  }
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+// Prevent multiple instances from running
+if (!(window as any).jsonAnalyzerStarted) {
+  (window as any).jsonAnalyzerStarted = true;
+  
+  async function main() {
+    try {
+      // Ensure we're in a window context (iframe/popup)
+      if (!isInWindowContext()) {
+        throw new Error('This server must run in an iframe or popup window');
+      }
+      
+      const server = new JSONAnalyzerServer();
+      await server.start();
+      
+    } catch (error) {
+      console.error('Failed to start JSON Analyzer server:', error);
+      
+      const server = new JSONAnalyzerServer();
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      (server as any).showError(errorMessage);
+    }
+  }
+
+  // Start the server
+  main();
+}
