@@ -14,47 +14,25 @@ This SEP proposes a postMessage transport for the Model Context Protocol (MCP) t
 
 ## Motivation
 
-The existing MCP transports (stdio and Streamable HTTP) work well for local processes and network services, but there's a significant gap for browser-native scenarios. Current limitations include:
+Current MCP transports require either local installation or remote server processing, creating fundamental barriers to adoption and new capabilities:
 
-1. **Installation Requirements**: Users must install local software or connect to remote servers, creating friction and limiting adoption.
+**Installation Barriers**: MCP servers require software installation, creating security risks from running untrusted code with system access and limiting reach to users who are willing to ignore these risks or have the technical expertise to mitigate them.
 
-2. **Privacy Constraints**: Processing sensitive data requires either trusting a remote server or installing local software.
+**Privacy Trade-offs**: Processing sensitive data forces users to choose between allowing the data to be hosted on remote servers or installing local software.
 
-3. **Browser API Access**: MCP servers cannot leverage powerful browser APIs (File System Access, WebUSB, WebBluetooth, etc.) that are only available in web contexts.
+**Limited UX**: MCP interactions are confined to text-based exchanges, preventing rich interactive experiences and progressive enhancement of client interfaces through embedded server UX.
 
-4. **User Interface Limitations**: Current transports offer no standard way for servers to present configuration interfaces or interactive tools.
+## Design Principles
 
-The postMessage transport addresses these limitations by enabling MCP servers to run directly in browser contexts, providing:
+This transport enables four transformative capabilities:
 
-- **Zero Installation**: Users connect to MCP servers by simply loading a URL
-- **Enhanced Privacy**: Data processing happens entirely within the browser
-- **Browser API Access**: Servers can leverage the full range of web platform APIs
-- **Rich UI Support**: Servers can present configuration interfaces and interactive tools
+**Zero Installation**: Servers distributed as URLs eliminate installation friction and security risks, enabling instant access to MCP capabilities in browser-sandboxed environments.
 
-Use cases enabled by this transport:
-- In-browser data analysis tools that process sensitive data locally
-- Web-based development environments with MCP tool integration  
-- Browser extension capabilities exposed via MCP
-- Static web apps that provide MCP services without backend infrastructure
+**Privacy-First Processing**: Browser-local execution ensures sensitive data can stay on the user's device, enabling new classes of privacy-preserving AI tools.
 
-## Design Goals and Assumptions
+**Progressive UX Enhancement**: Servers can embed rich interactive interfaces directly in client applications, transforming MCP from text-based to visually enhanced experiences.
 
-### Assumptions
-
-1. Servers run in browser contexts (iframes or popups) with access to web APIs
-2. Clients and servers communicate via postMessage across browser contexts
-3. Same-origin policy prevents direct DOM access between contexts
-4. Browser storage APIs provide persistence within origin boundaries
-5. Users expect familiar web patterns for configuration and authentication
-
-### Design Goals
-
-1. **Zero Installation**: Connect to servers by loading a URL
-2. **Clear User Experience**: Separate one-time configuration from repeated usage
-3. **Security by Default**: Validate and pin origins to prevent spoofing
-4. **UI Flexibility**: Support both hidden operation and rich interactive interfaces
-5. **Stateful Servers**: Enable servers to maintain configuration across sessions using browser storage
-6. **Simple Protocol**: Minimize message types and handshake complexity
+**Edge Computing**: Computation occurs in the user's browser context, reducing latency and server costs while improving data locality.
 
 ## Specification
 
@@ -65,19 +43,11 @@ The postMessage transport defines two distinct phases:
 1. **Setup Phase**: One-time configuration when adding a server to the client
 2. **Transport Phase**: Repeated connections for MCP communication
 
-Each phase has its own handshake protocol. Phases are distinguished by URL hash parameters.
+Each phase has its own handshake protocol. Servers detect the current phase via URL hash parameters: setup phase uses `#setup`hash on the server URL (e.g., `https://example.com/mcp-server#setup`) while transport phase uses the base URL with no hash parameter.
 
 **Note**: The setup phase is always required in terms of protocol steps, but can be transparent to users. Servers can immediately respond with a handshake completion, making setup instantaneous without interrupting UX or requiring user interaction.
 
-### Phase Detection
-
-Servers detect the current phase via URL hash parameters:
-- Setup phase: `https://example.com/mcp-server#setup`
-- Transport phase: `https://example.com/mcp-server` (no hash parameter)
-
-### Security Model
-
-The protocol implements strict origin-based security using browser MessageEvent origins. All security relies on validating `event.origin` from MessageEvent - the only trusted source of origin information in postMessage.
+The protocol implements strict origin-based security using browser MessageEvent origins, with all security relying on validating `event.origin` - the only trusted source of origin information in postMessage.
 
 ### Message Flows
 
