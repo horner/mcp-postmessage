@@ -1,8 +1,8 @@
-# SEP: postMessage Transport for Model Context Protocol
+# SEP: postMessage Transport
 
 ## Preamble
 
-**Title:** postMessage Transport for Model Context Protocol  
+**Title:** postMessage Transport  
 **Author:** Josh Mandel (@jmandel)  
 **Status:** Proposal  
 **Type:** Standards Track  
@@ -303,6 +303,33 @@ export interface MCPMessage {
 
 ### Message Flows
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    
+    Note over Client,Server: Setup Phase (#setup URL)
+    Client->>Server: Load iframe with #setup
+    Server->>Client: SetupHandshake
+    Client->>Server: SetupHandshakeReply (sessionId)
+    Note over Server: Optional user interaction
+    Server->>Client: SetupComplete (serverTitle, visibility)
+    Note over Client: Save user-facing title,<br/>close iframe
+    
+    Note over Client,Server: Transport Phase (normal URL)  
+    Client->>Server: Load new iframe
+    Server->>Client: TransportHandshake
+    Client->>Server: TransportHandshakeReply (sessionId)
+    Server->>Client: TransportAccepted
+    
+    Note over Client,Server: MCP Communication
+    Client->>Server: MCPMessage (initialize)
+    Server->>Client: MCPMessage (result)
+    Client->>Server: MCPMessage (tools/list)
+    Server->>Client: MCPMessage (tools)
+    Note over Client,Server: Ongoing MCP exchange...
+```
+
 #### Setup Flow
 ```
 1. Client loads iframe with URL#setup
@@ -512,7 +539,15 @@ The demo client provides a full-featured MCP client interface that:
 - **Dynamic UI Generation**: Creates forms for tool parameters based on MCP schema definitions
 - **Real-time Communication**: Handles bidirectional MCP message exchange during active sessions
 
-### Sample Servers
+### Example Servers
+
+#### Transport Features by Example
+
+| Transport Feature | Pi Calculator | JSON Analyzer | Mermaid Editor |
+|-------------------|---------------|---------------|----------------|
+| User-facing setup phase | ❌ | ✅ | ❌ |
+| UI visibility at runtime | 🔄 Optional | 🚫 Hidden | 👁️ Visible |
+| Partitioned storage by sessionId | ❌ | ✅ | ❌ |
 
 The implementation includes three sample servers that demonstrate different protocol features:
 
@@ -527,14 +562,6 @@ The implementation includes three sample servers that demonstrate different prot
 **Mermaid Editor Server**
 - **Demonstrates**: No user-facing setup phase, visible UI at runtime (always shown)
 - **Use Case**: Interactive diagram editing requiring constant user visibility
-
-#### Transport Features by Example
-
-| Transport Feature | Pi Calculator | JSON Analyzer | Mermaid Editor |
-|-------------------|---------------|---------------|----------------|
-| User-facing setup phase | ❌ | ✅ | ❌ |
-| UI visibility at runtime | 🔄 Optional | 🚫 Hidden | 👁️ Visible |
-| Partitioned storage by sessionId | ❌ | ✅ | ❌ |
 
 Each server demonstrates the complete protocol flow from setup through active MCP communication, providing practical patterns for implementers.
 
@@ -559,7 +586,3 @@ Each server demonstrates the complete protocol flow from setup through active MC
 1. Should the protocol include capability negotiation for sandbox restrictions?
 2. How can servers verify they're running in appropriately sandboxed contexts?
 3. What additional metadata about execution context would enhance security?
-
-## Conclusion
-
-The postMessage transport extends MCP to browser-native contexts, enabling new categories of privacy-preserving, zero-installation, and UI-rich applications. By leveraging web platform security primitives and providing a clear two-phase connection model, it offers a secure and user-friendly way to expose browser capabilities through the Model Context Protocol.
