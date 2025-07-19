@@ -79,6 +79,37 @@ Servers detect the current phase via URL hash parameters:
 
 The protocol implements strict origin-based security using browser MessageEvent origins. All security relies on validating `event.origin` from MessageEvent - the only trusted source of origin information in postMessage.
 
+### Message Flows
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    
+    Note over Client,Server: Setup Phase (#setup URL)
+    Client->>Server: Load iframe with #setup
+    Server->>Client: SetupHandshake (targetOrigin: '*')
+    Client->>Server: SetupHandshakeReply (sessionId: abc123)
+    Note over Server: Pin client origin<br/>Optional user interaction
+    Server->>Client: SetupComplete (serverTitle, visibility)
+    Note over Client: Save user-facing title,<br/>close iframe
+    
+    Note over Client,Server: Transport Phase (normal URL)  
+    Client->>Server: Load new iframe
+    Server->>Client: TransportHandshake (targetOrigin: '*')
+    Client->>Server: TransportHandshakeReply (sessionId: abc123)
+    Note over Server: Pin client origin
+    Server->>Client: TransportAccepted
+    
+    Note over Client,Server: MCP Communication
+    Client->>Server: MCPMessage (initialize)
+    Server->>Client: MCPMessage (result)
+    Client->>Server: MCPMessage (tools/list)
+    Server->>Client: MCPMessage (tools)
+    Note over Client,Server: Ongoing MCP exchange...
+```
+
+
 ### Message Types
 
 All protocol messages include a `type` field with prefix `MCP_`. The protocol defines eight message types across two phases:
@@ -299,56 +330,6 @@ export interface MCPMessage {
     error?: any;
   };
 }
-```
-
-### Message Flows
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Server
-    
-    Note over Client,Server: Setup Phase (#setup URL)
-    Client->>Server: Load iframe with #setup
-    Server->>Client: SetupHandshake
-    Client->>Server: SetupHandshakeReply (sessionId)
-    Note over Server: Optional user interaction
-    Server->>Client: SetupComplete (serverTitle, visibility)
-    Note over Client: Save user-facing title,<br/>close iframe
-    
-    Note over Client,Server: Transport Phase (normal URL)  
-    Client->>Server: Load new iframe
-    Server->>Client: TransportHandshake
-    Client->>Server: TransportHandshakeReply (sessionId)
-    Server->>Client: TransportAccepted
-    
-    Note over Client,Server: MCP Communication
-    Client->>Server: MCPMessage (initialize)
-    Server->>Client: MCPMessage (result)
-    Client->>Server: MCPMessage (tools/list)
-    Server->>Client: MCPMessage (tools)
-    Note over Client,Server: Ongoing MCP exchange...
-```
-
-#### Setup Flow
-```
-1. Client loads iframe with URL#setup
-2. Server → Client: SetupHandshake {protocolVersion, requiresVisibleSetup}
-3. Client → Server: SetupHandshakeReply {protocolVersion, sessionId}
-4. Server performs setup (may show UI if requiresVisibleSetup=true)
-5. Server → Client: SetupComplete {status, serverTitle, transportVisibility, ...}
-6. Client saves configuration and closes iframe
-```
-
-#### Transport Flow
-```
-1. Client loads iframe with URL (no #setup)
-2. Server → Client: TransportHandshake {protocolVersion}
-3. Client → Server: TransportHandshakeReply {sessionId, protocolVersion}
-4. Server → Client: TransportAccepted {sessionId}
-5. Client → Server: MCPMessage {type: 'MCP_MESSAGE', payload: {jsonrpc: '2.0', method: 'initialize', ...}}
-6. Server → Client: MCPMessage {type: 'MCP_MESSAGE', payload: {jsonrpc: '2.0', result: {...}}}
-7. Bidirectional MCPMessage exchange continues for session duration
 ```
 
 ### Security Implementation
