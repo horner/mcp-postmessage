@@ -1,6 +1,6 @@
-# Inverted PostMessage Architecture Demo
+# PostMessage Transport MCP Demo
 
-This demo showcases an **inverted** PostMessage architecture where:
+This demo showcases a PostMessage transport for MCP where:
 
 - **Parent Page**: Acts as the MCP server, implementing medical tools and maintaining patient data
 - **Iframe**: Acts as the MCP client, providing the chat/AI interface
@@ -31,19 +31,19 @@ This demo showcases an **inverted** PostMessage architecture where:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Key Innovation: Inverted Control
+## Key Innovation: PostMessage Transport
 
-**Traditional MCP**: Server runs in iframe, client controls from outside
+**Traditional MCP Transports**: HTTP/RPC or stdio communication
 ```
-Client (Outside) ←→ PostMessage ←→ Server (Iframe)
-```
-
-**Inverted MCP**: Client runs in iframe, server provides tools from outside
-```
-Server (Outside) ←→ PostMessage ←→ Client (Iframe)
+MCP Client ←→ HTTP/RPC/stdio ←→ MCP Server
 ```
 
-## Benefits of Inverted Architecture
+**PostMessage Transport**: Browser-native communication without installation
+```
+MCP Server (Parent) ←→ PostMessage ←→ MCP Client (Iframe)
+```
+
+## Benefits of PostMessage Transport
 
 1. **Security**: Tool execution happens in the trusted parent domain
 2. **Embeddability**: AI chat can be safely embedded in any application  
@@ -144,7 +144,7 @@ src/demo-embedded/
 │   └── chat-ui.ts           # Chat components, message rendering & tool visualization
 └── shared/                   # Shared utilities
     ├── types.ts             # TypeScript interfaces for medical data
-    └── protocol.ts          # Inverted protocol message definitions
+    └── protocol.ts          # PostMessage protocol message definitions
 ```
 
 ## Technical Details
@@ -203,4 +203,4 @@ src/demo-embedded/
 
 ---
 
-This demo represents a novel approach to embedding AI capabilities while maintaining security and data isolation. The inverted architecture enables powerful AI assistants that can safely operate within existing applications without compromising sensitive data or business logic.
+This demo represents a novel approach to embedding AI capabilities while maintaining security and data isolation. The PostMessage transport enables powerful AI assistants that can safely operate within existing applications without compromising sensitive data or business logic.

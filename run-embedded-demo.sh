@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Run the embedded demo with both parent and iframe servers
-echo "🏥 Starting Medical MCP Inverted Architecture Demo..."
+echo "🏥 Starting Medical MCP PostMessage Transport Demo..."
 echo ""
 echo "This will start:"
 echo "  - Parent page (MCP Server) on http://localhost:3100"

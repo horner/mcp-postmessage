@@ -1,5 +1,5 @@
 /**
- * Shared types for the inverted PostMessage architecture demo
+ * Shared types for the PostMessage transport MCP demo
  */
 
 // Patient data models

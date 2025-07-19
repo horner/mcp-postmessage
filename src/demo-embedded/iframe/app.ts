@@ -6,7 +6,7 @@
  */
 
 import type {
-  InvertedMessageType,
+  MCPPostMessageType,
   ServerHandshakeReplyMessage,
   ToolCallResponseMessage,
   ServerStatusMessage,
@@ -14,7 +14,7 @@ import type {
   ToolDefinition
 } from '../shared/protocol.js';
 import {
-  isInvertedMessage,
+  isMCPPostMessage,
   isServerHandshakeReply,
   isToolCallResponse,
   isStartSimulation,
@@ -24,9 +24,9 @@ import type { ChatMessage, ToolCall, SimulationStep } from '../shared/types.js';
 import { ChatUI } from './chat-ui.js';
 
 /**
- * Inverted MCP Client that runs in the iframe
+ * MCP Client implementation using PostMessage transport
  */
-export class InvertedMCPClient {
+export class MCPPostMessageClient {
   private sessionId: string;
   private isConnected = false;
   private availableTools: ToolDefinition[] = [];
@@ -68,7 +68,7 @@ export class InvertedMCPClient {
     console.log('Starting client handshake...');
     
     const handshakeMessage = {
-      type: 'INVERTED_CLIENT_HANDSHAKE' as const,
+      type: 'MCP_CLIENT_HANDSHAKE' as const,
       protocolVersion: '1.0' as const,
       sessionId: this.sessionId
     };
@@ -83,11 +83,11 @@ export class InvertedMCPClient {
       return;
     }
 
-    if (!isInvertedMessage(event.data)) {
+    if (!isMCPPostMessage(event.data)) {
       return; // Ignore non-protocol messages
     }
 
-    const message = event.data as InvertedMessageType;
+    const message = event.data as MCPPostMessageType;
     console.log('Client received message:', message);
 
     try {
@@ -97,7 +97,7 @@ export class InvertedMCPClient {
         await this.handleToolCallResponse(message);
       } else if (isStartSimulation(message)) {
         await this.handleStartSimulation(message);
-      } else if (message.type === 'INVERTED_SERVER_STATUS') {
+      } else if (message.type === 'MCP_SERVER_STATUS') {
         await this.handleServerStatus(message as ServerStatusMessage);
       } else if (isSimulationStep(message)) {
         await this.handleSimulationStep(message);
@@ -118,7 +118,7 @@ export class InvertedMCPClient {
 
     // Send connection established message
     const connectionMessage = {
-      type: 'INVERTED_CONNECTION_ESTABLISHED' as const,
+      type: 'MCP_CONNECTION_ESTABLISHED' as const,
       protocolVersion: '1.0' as const,
       sessionId: this.sessionId
     };
@@ -267,7 +267,7 @@ export class InvertedMCPClient {
 
   private sendSimulationStepComplete(success: boolean): void {
     const message = {
-      type: 'INVERTED_SIMULATION_STEP_COMPLETE' as const,
+      type: 'MCP_SIMULATION_STEP_COMPLETE' as const,
       protocolVersion: '1.0' as const,
       sessionId: this.sessionId,
       stepIndex: this.currentSimulationStep,
@@ -354,7 +354,7 @@ export class InvertedMCPClient {
 
     // Send tool call request to parent
     const request = {
-      type: 'INVERTED_TOOL_CALL_REQUEST' as const,
+      type: 'MCP_TOOL_CALL_REQUEST' as const,
       protocolVersion: '1.0' as const,
       sessionId: this.sessionId,
       callId,
@@ -450,5 +450,5 @@ export class InvertedMCPClient {
 
 // Initialize the client when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-  new InvertedMCPClient();
+  new MCPPostMessageClient();
 });

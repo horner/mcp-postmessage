@@ -6,7 +6,7 @@
  */
 
 import type {
-  InvertedMessageType,
+  MCPPostMessageType,
   ClientHandshakeMessage,
   ConnectionEstablishedMessage,
   ToolCallRequestMessage,
@@ -15,7 +15,7 @@ import type {
   SimulationStepCompleteMessage
 } from '../shared/protocol.js';
 import {
-  isInvertedMessage,
+  isMCPPostMessage,
   isClientHandshake,
   isConnectionEstablished,
   isToolCallRequest,
@@ -26,9 +26,9 @@ import { MedicalTools } from './medical-tools.js';
 import type { Patient, SimulationStep } from '../shared/types.js';
 
 /**
- * Inverted MCP Server that runs in the parent page
+ * MCP Server implementation using PostMessage transport
  */
-export class InvertedMCPServer {
+export class MCPPostMessageServer {
   private patientData: PatientDataManager;
   private medicalTools: MedicalTools;
   private iframe: HTMLIFrameElement | null = null;
@@ -98,11 +98,11 @@ export class InvertedMCPServer {
       return;
     }
 
-    if (!isInvertedMessage(event.data)) {
+    if (!isMCPPostMessage(event.data)) {
       return; // Ignore non-protocol messages
     }
 
-    const message = event.data as InvertedMessageType;
+    const message = event.data as MCPPostMessageType;
     console.log('Received message:', message);
 
     try {
@@ -125,7 +125,7 @@ export class InvertedMCPServer {
     this.sessionId = message.sessionId;
     
     const response = {
-      type: 'INVERTED_SERVER_HANDSHAKE_REPLY' as const,
+      type: 'MCP_SERVER_HANDSHAKE_REPLY' as const,
       protocolVersion: '1.0' as const,
       sessionId: this.sessionId,
       serverInfo: {
@@ -165,7 +165,7 @@ export class InvertedMCPServer {
       const result = await this.medicalTools.executeTool(message.toolName, message.parameters);
       
       const response = {
-        type: 'INVERTED_TOOL_CALL_RESPONSE' as const,
+        type: 'MCP_TOOL_CALL_RESPONSE' as const,
         protocolVersion: '1.0' as const,
         sessionId: this.sessionId,
         callId: message.callId,
@@ -177,7 +177,7 @@ export class InvertedMCPServer {
       this.updateStatus('connected', `Tool ${message.toolName} executed successfully`);
     } catch (error) {
       const response = {
-        type: 'INVERTED_TOOL_CALL_RESPONSE' as const,
+        type: 'MCP_TOOL_CALL_RESPONSE' as const,
         protocolVersion: '1.0' as const,
         sessionId: this.sessionId,
         callId: message.callId,
@@ -221,7 +221,7 @@ export class InvertedMCPServer {
     if (!this.isConnected || !this.sessionId) return;
 
     const statusMessage: ServerStatusMessage = {
-      type: 'INVERTED_SERVER_STATUS',
+      type: 'MCP_SERVER_STATUS',
       protocolVersion: '1.0',
       sessionId: this.sessionId,
       status,
@@ -429,7 +429,7 @@ export class InvertedMCPServer {
     this.updateStatus('simulation', 'Running automated demo simulation...');
 
     const startMessage: StartSimulationMessage = {
-      type: 'INVERTED_START_SIMULATION',
+      type: 'MCP_START_SIMULATION',
       protocolVersion: '1.0',
       sessionId: this.sessionId!,
       scenario: 'medical_demo'
@@ -454,7 +454,7 @@ export class InvertedMCPServer {
 
     // Send step to iframe for execution
     this.sendToIframe({
-      type: 'INVERTED_SIMULATION_STEP',
+      type: 'MCP_SIMULATION_STEP',
       protocolVersion: '1.0',
       sessionId: this.sessionId!,
       stepIndex,
@@ -465,5 +465,5 @@ export class InvertedMCPServer {
 
 // Initialize the server when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-  new InvertedMCPServer();
+  new MCPPostMessageServer();
 });

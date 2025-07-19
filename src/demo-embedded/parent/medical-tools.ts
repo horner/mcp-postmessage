@@ -1,5 +1,5 @@
 /**
- * Medical tools implementation for the inverted MCP server
+ * Medical tools implementation for the MCP server using PostMessage transport
  */
 
 import type { ToolDefinition } from '../shared/protocol.js';

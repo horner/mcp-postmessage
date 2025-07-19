@@ -1,14 +1,14 @@
 /**
- * Inverted PostMessage Protocol
+ * PostMessage Transport Protocol for MCP
  * 
- * In the inverted architecture:
- * - Parent page acts as MCP Server (implements tools)
- * - Iframe acts as MCP Client (chat interface)
- * - Messages flow opposite to the standard SDK
+ * This protocol defines communication between:
+ * - Parent page acting as MCP Server (implements tools)
+ * - Iframe acting as MCP Client (chat interface)
+ * - Uses PostMessage as the transport mechanism for MCP
  */
 
 // Base message interface
-export interface InvertedMessage {
+export interface MCPPostMessage {
   type: string;
   protocolVersion: '1.0';
 }
@@ -18,20 +18,20 @@ export interface InvertedMessage {
 // ============================================================================
 
 /**
- * Step 1: Iframe (Client) → Parent (Server)
+ * Step 1: Iframe (MCP Client) → Parent (MCP Server)
  * Client announces readiness to connect
  */
-export interface ClientHandshakeMessage extends InvertedMessage {
-  type: 'INVERTED_CLIENT_HANDSHAKE';
+export interface ClientHandshakeMessage extends MCPPostMessage {
+  type: 'MCP_CLIENT_HANDSHAKE';
   sessionId: string;
 }
 
 /**
- * Step 2: Parent (Server) → Iframe (Client)
+ * Step 2: Parent (MCP Server) → Iframe (MCP Client)
  * Server responds with available tools and capabilities
  */
-export interface ServerHandshakeReplyMessage extends InvertedMessage {
-  type: 'INVERTED_SERVER_HANDSHAKE_REPLY';
+export interface ServerHandshakeReplyMessage extends MCPPostMessage {
+  type: 'MCP_SERVER_HANDSHAKE_REPLY';
   sessionId: string;
   serverInfo: {
     name: string;
@@ -42,11 +42,11 @@ export interface ServerHandshakeReplyMessage extends InvertedMessage {
 }
 
 /**
- * Step 3: Iframe (Client) → Parent (Server)
+ * Step 3: Iframe (MCP Client) → Parent (MCP Server)
  * Client confirms connection established
  */
-export interface ConnectionEstablishedMessage extends InvertedMessage {
-  type: 'INVERTED_CONNECTION_ESTABLISHED';
+export interface ConnectionEstablishedMessage extends MCPPostMessage {
+  type: 'MCP_CONNECTION_ESTABLISHED';
   sessionId: string;
 }
 
@@ -55,11 +55,11 @@ export interface ConnectionEstablishedMessage extends InvertedMessage {
 // ============================================================================
 
 /**
- * Iframe (Client) → Parent (Server)
+ * Iframe (MCP Client) → Parent (MCP Server)
  * Request to execute a tool
  */
-export interface ToolCallRequestMessage extends InvertedMessage {
-  type: 'INVERTED_TOOL_CALL_REQUEST';
+export interface ToolCallRequestMessage extends MCPPostMessage {
+  type: 'MCP_TOOL_CALL_REQUEST';
   sessionId: string;
   callId: string;
   toolName: string;
@@ -67,11 +67,11 @@ export interface ToolCallRequestMessage extends InvertedMessage {
 }
 
 /**
- * Parent (Server) → Iframe (Client)
+ * Parent (MCP Server) → Iframe (MCP Client)
  * Tool execution result
  */
-export interface ToolCallResponseMessage extends InvertedMessage {
-  type: 'INVERTED_TOOL_CALL_RESPONSE';
+export interface ToolCallResponseMessage extends MCPPostMessage {
+  type: 'MCP_TOOL_CALL_RESPONSE';
   sessionId: string;
   callId: string;
   success: boolean;
@@ -84,22 +84,22 @@ export interface ToolCallResponseMessage extends InvertedMessage {
 // ============================================================================
 
 /**
- * Parent (Server) → Iframe (Client)
+ * Parent (MCP Server) → Iframe (MCP Client)
  * Notify client of server state changes
  */
-export interface ServerStatusMessage extends InvertedMessage {
-  type: 'INVERTED_SERVER_STATUS';
+export interface ServerStatusMessage extends MCPPostMessage {
+  type: 'MCP_SERVER_STATUS';
   sessionId: string;
   status: 'ready' | 'busy' | 'error';
   message?: string;
 }
 
 /**
- * Iframe (Client) → Parent (Server)
+ * Iframe (MCP Client) → Parent (MCP Server)
  * Notify server of client state changes
  */
-export interface ClientStatusMessage extends InvertedMessage {
-  type: 'INVERTED_CLIENT_STATUS';
+export interface ClientStatusMessage extends MCPPostMessage {
+  type: 'MCP_CLIENT_STATUS';
   sessionId: string;
   status: 'ready' | 'processing' | 'error';
   message?: string;
@@ -110,21 +110,21 @@ export interface ClientStatusMessage extends InvertedMessage {
 // ============================================================================
 
 /**
- * Parent (Server) → Iframe (Client)
+ * Parent (MCP Server) → Iframe (MCP Client)
  * Start automated demo simulation
  */
-export interface StartSimulationMessage extends InvertedMessage {
-  type: 'INVERTED_START_SIMULATION';
+export interface StartSimulationMessage extends MCPPostMessage {
+  type: 'MCP_START_SIMULATION';
   sessionId: string;
   scenario: string;
 }
 
 /**
- * Iframe (Client) → Parent (Server)
+ * Iframe (MCP Client) → Parent (MCP Server)
  * Simulation step completed
  */
-export interface SimulationStepCompleteMessage extends InvertedMessage {
-  type: 'INVERTED_SIMULATION_STEP_COMPLETE';
+export interface SimulationStepCompleteMessage extends MCPPostMessage {
+  type: 'MCP_SIMULATION_STEP_COMPLETE';
   sessionId: string;
   stepIndex: number;
   success: boolean;
@@ -145,18 +145,18 @@ export interface ToolDefinition {
 }
 
 /**
- * Parent (Server) → Iframe (Client)
+ * Parent (MCP Server) → Iframe (MCP Client)
  * Execute a specific simulation step
  */
-export interface SimulationStepMessage extends InvertedMessage {
-  type: 'INVERTED_SIMULATION_STEP';
+export interface SimulationStepMessage extends MCPPostMessage {
+  type: 'MCP_SIMULATION_STEP';
   sessionId: string;
   stepIndex: number;
   step: any; // SimulationStep from types.ts
 }
 
-// Union type for all inverted messages
-export type InvertedMessageType = 
+// Union type for all MCP PostMessage protocol messages
+export type MCPPostMessageType = 
   | ClientHandshakeMessage
   | ServerHandshakeReplyMessage
   | ConnectionEstablishedMessage
@@ -169,41 +169,41 @@ export type InvertedMessageType =
   | SimulationStepMessage;
 
 // Type guards
-export function isInvertedMessage(data: any): data is InvertedMessageType {
+export function isMCPPostMessage(data: any): data is MCPPostMessageType {
   return data && typeof data === 'object' && 
          typeof data.type === 'string' && 
-         data.type.startsWith('INVERTED_') &&
+         data.type.startsWith('MCP_') &&
          data.protocolVersion === '1.0';
 }
 
-export function isClientHandshake(msg: InvertedMessageType): msg is ClientHandshakeMessage {
-  return msg.type === 'INVERTED_CLIENT_HANDSHAKE';
+export function isClientHandshake(msg: MCPPostMessageType): msg is ClientHandshakeMessage {
+  return msg.type === 'MCP_CLIENT_HANDSHAKE';
 }
 
-export function isServerHandshakeReply(msg: InvertedMessageType): msg is ServerHandshakeReplyMessage {
-  return msg.type === 'INVERTED_SERVER_HANDSHAKE_REPLY';
+export function isServerHandshakeReply(msg: MCPPostMessageType): msg is ServerHandshakeReplyMessage {
+  return msg.type === 'MCP_SERVER_HANDSHAKE_REPLY';
 }
 
-export function isConnectionEstablished(msg: InvertedMessageType): msg is ConnectionEstablishedMessage {
-  return msg.type === 'INVERTED_CONNECTION_ESTABLISHED';
+export function isConnectionEstablished(msg: MCPPostMessageType): msg is ConnectionEstablishedMessage {
+  return msg.type === 'MCP_CONNECTION_ESTABLISHED';
 }
 
-export function isToolCallRequest(msg: InvertedMessageType): msg is ToolCallRequestMessage {
-  return msg.type === 'INVERTED_TOOL_CALL_REQUEST';
+export function isToolCallRequest(msg: MCPPostMessageType): msg is ToolCallRequestMessage {
+  return msg.type === 'MCP_TOOL_CALL_REQUEST';
 }
 
-export function isToolCallResponse(msg: InvertedMessageType): msg is ToolCallResponseMessage {
-  return msg.type === 'INVERTED_TOOL_CALL_RESPONSE';
+export function isToolCallResponse(msg: MCPPostMessageType): msg is ToolCallResponseMessage {
+  return msg.type === 'MCP_TOOL_CALL_RESPONSE';
 }
 
-export function isStartSimulation(msg: InvertedMessageType): msg is StartSimulationMessage {
-  return msg.type === 'INVERTED_START_SIMULATION';
+export function isStartSimulation(msg: MCPPostMessageType): msg is StartSimulationMessage {
+  return msg.type === 'MCP_START_SIMULATION';
 }
 
-export function isSimulationStep(msg: InvertedMessageType): msg is SimulationStepMessage {
-  return msg.type === 'INVERTED_SIMULATION_STEP';
+export function isSimulationStep(msg: MCPPostMessageType): msg is SimulationStepMessage {
+  return msg.type === 'MCP_SIMULATION_STEP';
 }
 
-export function isSimulationStepComplete(msg: InvertedMessageType): msg is SimulationStepCompleteMessage {
-  return msg.type === 'INVERTED_SIMULATION_STEP_COMPLETE';
+export function isSimulationStepComplete(msg: MCPPostMessageType): msg is SimulationStepCompleteMessage {
+  return msg.type === 'MCP_SIMULATION_STEP_COMPLETE';
 }
