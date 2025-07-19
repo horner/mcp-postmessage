@@ -524,6 +524,9 @@ class JSONAnalyzerServer {
     console.log('[JSON SETUP] Starting setup phase for JSON Analyzer');
     
     this.setupHelper = new PostMessageSetupHelper({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*'],
       requiresVisibleSetup: true
     });
@@ -567,6 +570,9 @@ class JSONAnalyzerServer {
     
     // Create transport and wait for connection to get session ID
     const transport = new PostMessageServerTransport({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*']
     });
     

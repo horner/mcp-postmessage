@@ -532,6 +532,9 @@ class PiCalculatorServer {
     console.log('[PI SETUP] Starting setup phase for Pi Calculator');
     
     const setupHelper = new PostMessageSetupHelper({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*'],
       requiresVisibleSetup: false
     });
@@ -562,6 +565,9 @@ class PiCalculatorServer {
     this.server = this.createMCPServer();
     
     const transport = new PostMessageServerTransport({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*']
     });
     

@@ -305,7 +305,18 @@ export interface MCPMessage {
 ### Security Implementation
 
 #### Origin Validation Requirements
-- **Server Setup**: Maintain an allowed origins list for your server
+
+**⚠️ CRITICAL SECURITY REQUIREMENT**: Production servers MUST specify explicit allowed origins. Never use `['*']` in production as it allows any website to connect to your server.
+
+```javascript
+// ❌ INSECURE - allows any origin (demo only)
+allowedOrigins: ['*']
+
+// ✅ SECURE - explicit origins only  
+allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
+```
+
+- **Server Setup**: Maintain an explicit allowed origins list for your server
 - **Message Validation**: Always validate using `event.origin` from MessageEvent
 - **Anti-Spoofing**: Never trust origin information from message payloads - only use `event.origin`
 - **Allowlist Enforcement**: Reject messages from origins not in your allowed list
@@ -535,6 +546,4 @@ Each server demonstrates the complete protocol flow from setup through active MC
 
 ### Open Security Questions
 
-1. Should the protocol include capability negotiation for sandbox restrictions?
-2. How can servers verify they're running in appropriately sandboxed contexts?
-3. What additional metadata about execution context would enhance security?
+1. Should the protocol include capability requirements/negotiation for sandbox restrictions?

@@ -408,6 +408,9 @@ class MermaidEditorServer {
     console.log('[MERMAID SETUP] Starting setup phase for Mermaid Diagram Editor');
     
     const setupHelper = new PostMessageSetupHelper({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*'],
       requiresVisibleSetup: false
     });
@@ -442,6 +445,9 @@ class MermaidEditorServer {
     this.server = getMermaidEditorServer(this.ui);
     
     const transport = new PostMessageServerTransport({
+      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
+      // Production servers MUST specify explicit origins:
+      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
       allowedOrigins: ['*']
     });
     
