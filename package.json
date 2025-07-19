@@ -12,6 +12,9 @@
     "demo:pi": "cd src/demo/servers/pi-calculator && bun --port 3001 index.html --hot",
     "demo:mermaid": "cd src/demo/servers/mermaid-editor && bun --port 3001 index.html --hot",
     "demo:json": "cd src/demo/servers/json-analyzer && bun --port 3001 index.html --hot",
+    "demo:embedded": "./run-embedded-demo.sh",
+    "demo:embedded:parent": "cd src/demo-embedded/parent && bun --port 3100 index.html --hot",
+    "demo:embedded:iframe": "cd src/demo-embedded/iframe && bun --port 3101 index.html --hot",
     "type-check": "bunx tsc --noEmit",
     "preview": "cd dist && bun --port 3000 ."
   },
