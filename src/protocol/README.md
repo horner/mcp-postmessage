@@ -386,7 +386,8 @@ Session IDs provide continuity between setup and transport phases through a cons
 3. **Transport Phase**: Client provides the same sessionId during transport handshake
 4. **Data Retrieval**: Server uses sessionId to retrieve the previously stored configuration for that specific connection
 
-**Data Isolation**: Session IDs enable servers to maintain separate storage and context for different connections, supporting scenarios like multiple users accessing the same server simultaneously, or a single user having multiple independent sessions.
+**Data Isolation**: Session IDs enable servers to maintain separate storage and context for different connections, supporting scenarios like a single user having multiple independent sessions each operating with different configuration.
+
 
 **Implementation Example**: Here's one way servers can use sessionId for cross-phase data persistence (this is implementation advice, not a protocol requirement):
 
