@@ -1,179 +1,176 @@
 /**
  * Pi Calculator - Monte Carlo π estimation with live visualization
- * 
- * In random points we trust, to find π in the dust.
  */
-
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { PostMessageTransport } from '$sdk/server/transport.js';
 import { PostMessageServerWindowControl } from '$sdk/server/window-control.js';
 import { getServerPhase, isInWindowContext } from '$sdk/utils/helpers.js';
 
-// Configuration
-const ALLOWED_ORIGINS = ['*']; // In production, lock down to specific origins
-const SERVER_CONFIG = {
-  name: 'pi-calculator',
-  version: '1.0.0',
-  title: 'Pi Calculator',
-  visibility: 'optional' as const,
-  message: 'π is ready'
-};
+let totalIterations = 0, totalInside = 0;
+let allPoints: Array<{ x: number; y: number; isInside: boolean }> = [];
 
-const TOOL_CONFIG = {
-  minIterations: 1000,
-  maxIterations: 1000000,
-  defaultIterations: 1000
-};
-
-// Monte Carlo state
-let totalIterations = 0;
-let totalInside = 0;
-
-function initializeCanvas(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+function setupCanvas() {
+  const canvas = document.getElementById('visualization') as HTMLCanvasElement;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return { ctx: null, rect: { width: 0, height: 0 } };
   
-  // Draw unit circle
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.scale(ratio, ratio);
+  
+  // Clear and draw circle
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, rect.width, rect.height);
   ctx.strokeStyle = '#333';
-  ctx.lineWidth = 1;
   ctx.beginPath();
-  const radius = Math.max(5, Math.min(canvas.width, canvas.height)/2 - 20);
-  ctx.arc(canvas.width/2, canvas.height/2, radius, 0, 2 * Math.PI);
+  const radius = Math.min(rect.width, rect.height) / 2 - 20;
+  ctx.arc(rect.width / 2, rect.height / 2, radius, 0, 2 * Math.PI);
   ctx.stroke();
+  
+  return { ctx, rect };
 }
 
-function drawPoint(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, x: number, y: number, isInside: boolean) {
-  const radius = Math.max(5, Math.min(canvas.width, canvas.height) / 2 - 20);
-  const px = canvas.width/2 + x * radius;
-  const py = canvas.height/2 + y * radius;
+function drawPoint(
+  ctx: CanvasRenderingContext2D, 
+  rect: DOMRect, 
+  x: number, 
+  y: number, 
+  isInside: boolean
+) {
+  const radius = Math.min(rect.width, rect.height) / 2 - 20;
+  const px = rect.width / 2 + x * radius;
+  const py = rect.height / 2 + y * radius;
   ctx.fillStyle = isInside ? '#4CAF50' : '#ff6b6b';
   ctx.fillRect(px - 1, py - 1, 2, 2);
 }
 
-function updateDisplay(pi: number, accuracy: number) {
-  const iterationsEl = document.getElementById('iteration-count');
-  if (iterationsEl) {
-    iterationsEl.textContent = `Iterations: ${totalIterations.toLocaleString()} | π ≈ ${pi.toFixed(6)} (${accuracy.toFixed(1)}% accurate)`;
+function updateDisplay() {
+  const pi = 4 * totalInside / totalIterations;
+  const accuracy = 100 - Math.abs((pi - Math.PI) / Math.PI) * 100;
+  const el = document.getElementById('iteration-count');
+  if (el) {
+    el.textContent = `Iterations: ${totalIterations.toLocaleString()} | ` +
+      `π ≈ ${pi.toFixed(6)} (${accuracy.toFixed(1)}% accurate)`;
   }
 }
 
-function calculatePi(newIterations: number): { pi: number; accuracy: number; totalIterations: number } {
+function redrawCanvas() {
+  const { ctx, rect } = setupCanvas();
+  if (!ctx) return;
+  
+  allPoints.forEach(point => drawPoint(ctx, rect, point.x, point.y, point.isInside));
+  if (totalIterations > 0) updateDisplay();
+}
+
+function calculatePi(iterations: number) {
   const canvas = document.getElementById('visualization') as HTMLCanvasElement;
   const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return { pi: 0, accuracy: 0, totalIterations: 0 };
   
-  // Initialize canvas on first run
-  if (ctx && totalIterations === 0) {
-    initializeCanvas(canvas, ctx);
+  const rect = canvas.getBoundingClientRect();
+  
+  // Only setup canvas if it's the first calculation
+  if (totalIterations === 0) {
+    setupCanvas();
   }
   
-  // Monte Carlo simulation
-  for (let i = 0; i < newIterations; i++) {
+  for (let i = 0; i < iterations; i++) {
     const x = Math.random() * 2 - 1;
     const y = Math.random() * 2 - 1;
     const isInside = x * x + y * y <= 1;
     
+    allPoints.push({ x, y, isInside });
     if (isInside) totalInside++;
     totalIterations++;
     
-    if (ctx) drawPoint(ctx, canvas, x, y, isInside);
+    // Draw new point on existing canvas
+    drawPoint(ctx, rect, x, y, isInside);
   }
   
+  updateDisplay();
   const pi = 4 * totalInside / totalIterations;
   const accuracy = 100 - Math.abs((pi - Math.PI) / Math.PI) * 100;
-  
-  updateDisplay(pi, accuracy);
   return { pi, accuracy, totalIterations };
 }
 
-function reset(): void {
-  const canvas = document.getElementById('visualization') as HTMLCanvasElement;
-  const ctx = canvas?.getContext('2d');
-  const iterationsEl = document.getElementById('iteration-count');
-  
-  totalIterations = 0;
-  totalInside = 0;
-  
-  if (ctx) {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  
-  if (iterationsEl) {
-    iterationsEl.textContent = 'Iterations: 0';
-  }
-}
-
-async function createServer(): Promise<McpServer> {
-  const server = new McpServer({ 
-    name: SERVER_CONFIG.name, 
-    version: SERVER_CONFIG.version 
-  });
-  
-  server.registerTool('calculate_pi', {
-    title: 'Calculate π',
-    description: 'Monte Carlo estimation of π with visualization',
-    inputSchema: {
-      iterations: z.number()
-        .min(TOOL_CONFIG.minIterations)
-        .max(TOOL_CONFIG.maxIterations)
-        .describe(`Number of random points. Example: ${TOOL_CONFIG.defaultIterations}`)
-    }
-  }, async ({ iterations }) => {
-    const result = calculatePi(iterations);
-    return {
-      content: [{
-        type: 'text',
-        text: `Added ${iterations.toLocaleString()} iterations. π ≈ ${result.pi.toFixed(6)} (${result.accuracy.toFixed(1)}% accurate after ${result.totalIterations.toLocaleString()} total iterations)`
-      }]
-    };
-  });
-  
-  server.registerTool('reset', {
-    title: 'Reset Everything',
-    description: 'Clear canvas, reset π estimate and iteration count',
-    inputSchema: {}
-  }, async () => {
-    reset();
-    return {
-      content: [{
-        type: 'text',
-        text: 'Reset complete - ready for fresh π calculation'
-      }]
-    };
-  });
-  
-  return server;
+function reset() {
+  totalIterations = totalInside = 0;
+  allPoints = [];
+  redrawCanvas();
+  const el = document.getElementById('iteration-count');
+  if (el) el.textContent = 'Iterations: 0';
 }
 
 async function main() {
   if (!isInWindowContext()) throw new Error('π needs a window');
   
-  const windowControl = new PostMessageServerWindowControl(ALLOWED_ORIGINS);
-  const transport = new PostMessageTransport(windowControl, {
-    requiresVisibleSetup: false
-  });
-  const phase = getServerPhase();
+  const windowControl = new PostMessageServerWindowControl(['*']);
+  const transport = new PostMessageTransport(windowControl, { requiresVisibleSetup: false });
   
-  if (phase === 'setup') {
+  if (getServerPhase() === 'setup') {
     await transport.prepareSetup();
     await transport.completeSetup({
-      serverTitle: SERVER_CONFIG.title,
-      transportVisibility: { requirement: SERVER_CONFIG.visibility },
-      ephemeralMessage: SERVER_CONFIG.message
+      serverTitle: 'Pi Calculator',
+      transportVisibility: { requirement: 'optional' },
+      ephemeralMessage: 'π is ready'
     });
   } else {
     await transport.prepareToConnect();
     
-    const server = await createServer();
+    const server = new McpServer({ name: 'pi-calculator', version: '1.0.0' });
+    
+    server.registerTool('calculate_pi', {
+      title: 'Calculate π',
+      description: 'Monte Carlo estimation of π with visualization',
+      inputSchema: {
+        iterations: z.number()
+          .min(1000)
+          .max(1000000)
+          .describe('Number of random points. Example: 1000')
+      }
+    }, async ({ iterations }) => {
+      const result = calculatePi(iterations);
+      return {
+        content: [{
+          type: 'text',
+          text: `Added ${iterations.toLocaleString()} iterations. π ≈ ${result.pi.toFixed(6)} ` +
+            `(${result.accuracy.toFixed(1)}% accurate after ` +
+            `${result.totalIterations.toLocaleString()} total iterations)`
+        }]
+      };
+    });
+    
+    server.registerTool('reset', {
+      title: 'Reset Everything',
+      description: 'Clear canvas, reset π estimate and iteration count',
+      inputSchema: {}
+    }, async () => {
+      reset();
+      return {
+        content: [{ type: 'text', text: 'Reset complete - ready for fresh π calculation' }]
+      };
+    });
+    
     await server.connect(transport);
     
-    // Ready state
+    // Resize handling
+    let resizeTimeout: number;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(redrawCanvas, 100);
+    });
+    
+    // Initialize UI
     document.getElementById('loading')?.classList.add('hidden');
-    const iterationsEl = document.getElementById('iteration-count');
-    if (iterationsEl) iterationsEl.textContent = 'Iterations: 0';
+    const el = document.getElementById('iteration-count');
+    if (el) el.textContent = 'Iterations: 0';
+    redrawCanvas();
   }
 }
 
