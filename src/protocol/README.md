@@ -334,15 +334,7 @@ export interface MCPMessage {
 
 #### Origin Validation Requirements
 
-**⚠️ CRITICAL SECURITY REQUIREMENT**: Production servers MUST specify explicit allowed origins. Never use `['*']` in production as it allows any website to connect to your server.
-
-```javascript
-// ❌ INSECURE - allows any origin (demo only)
-allowedOrigins: ['*']
-
-// ✅ SECURE - explicit origins only  
-allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
-```
+Production servers should consider limiting communication to a list of allowed origins, unless they are willing to run talk exit any client.
 
 - **Server Setup**: Maintain an explicit allowed origins list for your server
 - **Message Validation**: Always validate using `event.origin` from MessageEvent
