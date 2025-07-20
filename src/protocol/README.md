@@ -251,15 +251,15 @@ export interface TransportHandshakeMessage {
 
 **5. TransportHandshakeReply** (Outer Frame → Inner Frame)
 
-**Context**: The Outer Frame receives the `TransportHandshakeMessage` and replies
- * with the `sessionId` for this connection, authorizing the transport to begin.
- * 
- * TARGET ORIGIN: The Outer Frame uses the Inner Frame's origin.
- * 
- * SECURITY: Upon receiving this message, the Inner Frame must:
- * 1. Validate that `event.origin` is an allowed origin.
- * 2. Pin `event.origin` for all subsequent messages in this session.
- */
+**Context**: The Outer Frame receives the `TransportHandshakeMessage` and replies with the `sessionId` for this connection, authorizing the transport to begin.
+
+**TARGET ORIGIN**: The Outer Frame uses the Inner Frame's origin.
+
+**SECURITY**: Upon receiving this message, the Inner Frame must:
+1. Validate that `event.origin` is an allowed origin.
+2. Pin `event.origin` for all subsequent messages in this session.
+
+```typescript
 export interface TransportHandshakeReplyMessage {
   type: 'MCP_TRANSPORT_HANDSHAKE_REPLY';
   
@@ -277,12 +277,11 @@ export interface TransportHandshakeReplyMessage {
 
 **6. TransportAccepted** (Inner Frame → Outer Frame)
 
-**Context**: The Inner Frame has received the handshake reply, validated the
- * Outer Frame's origin, and is now ready for MCP communication. This message
- * signals to the Outer Frame that the transport is fully established.
- * 
- * TARGET ORIGIN: The Inner Frame uses the pinned origin of the Outer Frame.
- */
+**Context**: The Inner Frame has received the handshake reply, validated the Outer Frame's origin, and is now ready for MCP communication. This message signals to the Outer Frame that the transport is fully established.
+
+**TARGET ORIGIN**: The Inner Frame uses the pinned origin of the Outer Frame.
+
+```typescript
 export interface TransportAcceptedMessage {
   type: 'MCP_TRANSPORT_ACCEPTED';
   
@@ -295,17 +294,17 @@ export interface TransportAcceptedMessage {
 
 **7. SetupRequired** (Inner Frame → Outer Frame) (Optional)
 
-**Context**: During an active session, the Inner Frame determines it needs 
- * to re-run the setup phase. For example:
- * - OAuth token has expired
- * - API key is no longer valid  
- * - Server configuration has changed
- * - User permissions have changed
- * 
- * The Outer Frame should prompt the user to re-run setup for this server.
- * 
- * TARGET ORIGIN: The Inner Frame uses the pinned origin from the session.
- */
+**Context**: During an active session, the Inner Frame determines it needs to re-run the setup phase. For example:
+- OAuth token has expired
+- API key is no longer valid  
+- Server configuration has changed
+- User permissions have changed
+
+The Outer Frame should prompt the user to re-run setup for this server.
+
+**TARGET ORIGIN**: The Inner Frame uses the pinned origin from the session.
+
+```typescript
 export interface SetupRequiredMessage {
   type: 'MCP_SETUP_REQUIRED';
   
@@ -326,12 +325,11 @@ export interface SetupRequiredMessage {
 
 **8. MCPMessage** (Bidirectional)
 
-**Context**: After `TransportAccepted`, all MCP protocol messages are wrapped
- * in this message type. This allows the transport to distinguish between
- * transport control messages and MCP protocol messages.
- * 
- * TARGET ORIGIN: Both parties use their respective pinned origins.
- */
+**Context**: After `TransportAccepted`, all MCP protocol messages are wrapped in this message type. This allows the transport to distinguish between transport control messages and MCP protocol messages.
+
+**TARGET ORIGIN**: Both parties use their respective pinned origins.
+
+```typescript
 export interface MCPMessage {
   type: 'MCP_MESSAGE';
   
