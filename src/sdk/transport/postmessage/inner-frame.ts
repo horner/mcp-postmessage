@@ -1,6 +1,12 @@
 /**
- * PostMessage Transport for MCP Servers
- * Handles both setup and transport phases with a clean API.
+ * Inner Frame Transport for PostMessage Protocol
+ * 
+ * This module provides transport components for code running in the "inner frame" 
+ * (subordinate window) that communicates with its controlling parent.
+ * 
+ * This can be used by:
+ * - MCP Servers running in iframes controlled by clients (standard architecture)
+ * - MCP Clients running in iframes controlled by servers (inverted architecture)
  */
 
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
@@ -17,9 +23,142 @@ import {
   isSetupMessage,
   isTransportMessage
 } from '$protocol/types.js';
-import { ServerWindowControl } from './window-control.js';
 import { createLogger } from '$sdk/utils/logger.js';
 import { withTimeout } from '$sdk/utils/helpers.js';
+
+// ============================================================================
+// INNER WINDOW CONTROL INTERFACE
+// ============================================================================
+
+/**
+ * Interface for communicating with the parent window from an inner frame
+ */
+export interface InnerWindowControl {
+  /** Send a message to the parent window */
+  postMessage(msg: any): void;
+
+  /** Subscribe to messages from the parent window.
+      Returns an unsubscribe function. */
+  onMessage(cb: (msg: any) => void): () => void;
+
+  /** Get the currently pinned origin, if any */
+  get pinnedOrigin(): string | undefined;
+
+  /** Close underlying window / detach listeners, idempotent */
+  destroy(): void;
+}
+
+// ============================================================================
+// POSTMESSAGE INNER CONTROL
+// ============================================================================
+
+/**
+ * Implementation of InnerWindowControl that manages postMessage communication
+ * with progressive origin pinning during handshake
+ */
+export class PostMessageInnerControl implements InnerWindowControl {
+  private messageHandler?: (event: MessageEvent) => void;
+  private messageCallbacks: Set<(msg: any) => void> = new Set();
+  private destroyed = false;
+  private _pinnedOrigin?: string;
+
+  constructor(
+    private allowedOrigins: string[],
+    private windowRef: Window = window.parent
+  ) {}
+
+  get pinnedOrigin(): string | undefined {
+    return this._pinnedOrigin;
+  }
+
+  postMessage(msg: any): void {
+    if (this.destroyed) {
+      throw new Error('WindowControl has been destroyed');
+    }
+    
+    // Use pinned origin if available, otherwise '*' for initial handshake
+    const targetOrigin = this._pinnedOrigin || '*';
+    this.windowRef.postMessage(msg, targetOrigin);
+  }
+
+  onMessage(callback: (msg: any) => void): () => void {
+    if (this.destroyed) {
+      throw new Error('WindowControl has been destroyed');
+    }
+
+    // Set up global message handler on first subscription
+    if (!this.messageHandler) {
+      this.messageHandler = (event: MessageEvent) => {
+        // Only accept messages from our specific window reference
+        if (event.source !== this.windowRef) {
+          return;
+        }
+
+        // If no pinned origin yet, validate against allowed list and auto-pin on first valid message
+        if (!this._pinnedOrigin) {
+          const isOriginAllowed = this.allowedOrigins.includes('*') || 
+                                 this.allowedOrigins.includes(event.origin);
+          
+          if (!isOriginAllowed) {
+            console.warn(`Message rejected from unauthorized origin: ${event.origin}`);
+            return;
+          }
+
+          // Auto-pin the origin on first valid message
+          this._pinnedOrigin = event.origin;
+          console.log(`[InnerWindowControl] Auto-pinned origin: ${event.origin}`);
+        } else {
+          // We have a pinned origin, only accept messages from that exact origin
+          if (event.origin !== this._pinnedOrigin) {
+            return;
+          }
+        }
+
+        // Forward validated message to all callbacks
+        this.messageCallbacks.forEach(cb => {
+          try {
+            cb(event.data);
+          } catch (error) {
+            console.error('Error in message callback:', error);
+          }
+        });
+      };
+
+      window.addEventListener('message', this.messageHandler);
+    }
+
+    this.messageCallbacks.add(callback);
+
+    // Return unsubscribe function
+    return () => {
+      this.messageCallbacks.delete(callback);
+      
+      // Clean up global handler if no more callbacks
+      if (this.messageCallbacks.size === 0 && this.messageHandler) {
+        window.removeEventListener('message', this.messageHandler);
+        this.messageHandler = undefined;
+      }
+    };
+  }
+
+  destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
+
+    this.destroyed = true;
+    this.messageCallbacks.clear();
+
+    if (this.messageHandler) {
+      window.removeEventListener('message', this.messageHandler);
+      this.messageHandler = undefined;
+    }
+  }
+}
+
+// ============================================================================
+// INNER FRAME TRANSPORT
+// ============================================================================
 
 interface SetupHandshakeResult {
   origin: string;
@@ -45,7 +184,7 @@ export interface SetupResult {
   ephemeralMessage?: string;
 }
 
-export class PostMessageTransport implements Transport {
+export class InnerFrameTransport implements Transport {
   private unsubscribe?: () => void;
   private closed = false;
   private setupHandshakeResult?: SetupHandshakeResult;
@@ -58,7 +197,7 @@ export class PostMessageTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
 
   constructor(
-    private control: ServerWindowControl,
+    private control: InnerWindowControl,
     private setupConfig?: SetupConfig
   ) {}
   
@@ -68,7 +207,7 @@ export class PostMessageTransport implements Transport {
 
   /** Prepare for setup phase - performs setup handshake */
   async prepareSetup(): Promise<void> {
-    const logger = createLogger('SERVER', 'MCP-SETUP-HANDSHAKE');
+    const logger = createLogger('INNER', 'MCP-SETUP-HANDSHAKE');
     
     if (this.phase !== 'idle') throw new Error('Transport already in use');
     

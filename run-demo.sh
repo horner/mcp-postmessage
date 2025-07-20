@@ -47,28 +47,40 @@ bun src/demo/servers/**/index.html --port 3001 --hot &
 SERVER_PID=$!
 echo "$SERVER_PID" > "/tmp/mcp-demo-servers.pid"
 
-echo "Starting client on port 3000..."
-cd src/demo/client
-bun index.html --port 3000 --hot &
+echo "Starting client and inverted demo on port 3000..."
+# Serve multiple entry points to get all routes
+bun src/demo/index.html src/demo/inverted/index.html src/demo/servers/**/*.html --port 3000 --hot &
 CLIENT_PID=$!
 echo "$CLIENT_PID" > "/tmp/mcp-demo-client.pid"
-cd - > /dev/null
 
 echo ""
 echo "✅ Demo servers started successfully!"
 echo ""
 echo "🌐 Open your browser to:"
-echo "   Client:           http://localhost:3000"
-echo "   Pi Calculator:    http://localhost:3001/pi-calculator"
-echo "   Mermaid Editor:   http://localhost:3001/mermaid-editor"
-echo "   JSON Analyzer:    http://localhost:3001/json-analyzer"
+echo ""
+echo "   📱 STANDARD ARCHITECTURE DEMO:"
+echo "     Client:           http://localhost:3000"
+echo "     Client (alt):     http://localhost:3000/client"  
+echo "     Pi Calculator:    http://localhost:3001/pi-calculator"
+echo "     Mermaid Editor:   http://localhost:3001/mermaid-editor"
+echo "     JSON Analyzer:    http://localhost:3001/json-analyzer"
+echo ""
+echo "   🔄 INVERTED ARCHITECTURE DEMO:"
+echo "     User Dashboard:   http://localhost:3000/inverted"
 echo ""
 echo "📋 Demo Instructions:"
-echo "1. Open http://localhost:3000 in your browser"
-echo "2. The Pi Calculator should already be in the server list"
-echo "3. Click 'Setup' to configure the server"
-echo "4. Click 'Connect' to start using the MCP server"
-echo "5. Try the interactive Pi calculation with visualization"
+echo ""
+echo "   🔄 STANDARD ARCHITECTURE (Client controls Server):"
+echo "   1. Open http://localhost:3000 in your browser"
+echo "   2. Add servers from the examples dropdown"
+echo "   3. Click 'Setup' to configure each server"
+echo "   4. Click 'Connect' to start using MCP tools"
+echo ""
+echo "   🔄 INVERTED ARCHITECTURE (Server controls Client):"
+echo "   1. Open http://localhost:3000/inverted in your browser"
+echo "   2. The AI Copilot will automatically load in the sidebar"
+echo "   3. Chat with the copilot to access dashboard data"
+echo "   4. Try asking 'Who am I?' or 'What are my projects?'"
 echo ""
 echo "Press Ctrl+C to stop all servers"
 echo ""

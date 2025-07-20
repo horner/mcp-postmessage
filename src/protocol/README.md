@@ -53,31 +53,59 @@ The protocol implements strict origin-based security using browser MessageEvent 
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Server
+    participant OuterFrame as Outer Frame
+    participant InnerFrame as Inner Frame
     
-    Note over Client,Server: Setup Phase (#setup URL)
-    Client->>Server: Load iframe with #setup
-    Server->>Client: SetupHandshake (targetOrigin: '*')
-    Client->>Server: SetupHandshakeReply (sessionId: abc123)
-    Note over Server: Pin client origin<br/>Optional user interaction
-    Server->>Client: SetupComplete (serverTitle, visibility)
-    Note over Client: Save user-facing title,<br/>close iframe
+    Note over OuterFrame,InnerFrame: Setup Phase (#setup URL)
+    OuterFrame->>InnerFrame: Load iframe with #setup
+    InnerFrame->>OuterFrame: SetupHandshake (targetOrigin: '*')
+    OuterFrame->>InnerFrame: SetupHandshakeReply (sessionId: abc123)
+    Note over InnerFrame: Pin outer frame origin<br/>Optional user interaction
+    InnerFrame->>OuterFrame: SetupComplete (serverTitle, visibility)
+    Note over OuterFrame: Save user-facing title,<br/>close iframe
     
-    Note over Client,Server: Transport Phase (normal URL)  
-    Client->>Server: Load new iframe
-    Server->>Client: TransportHandshake (targetOrigin: '*')
-    Client->>Server: TransportHandshakeReply (sessionId: abc123)
-    Note over Server: Pin client origin
-    Server->>Client: TransportAccepted
+    Note over OuterFrame,InnerFrame: Transport Phase (normal URL)  
+    OuterFrame->>InnerFrame: Load new iframe
+    InnerFrame->>OuterFrame: TransportHandshake (targetOrigin: '*')
+    OuterFrame->>InnerFrame: TransportHandshakeReply (sessionId: abc123)
+    Note over InnerFrame: Pin outer frame origin
+    InnerFrame->>OuterFrame: TransportAccepted
     
-    Note over Client,Server: MCP Communication
-    Client->>Server: MCPMessage (initialize)
-    Server->>Client: MCPMessage (result)
-    Client->>Server: MCPMessage (tools/list)
-    Server->>Client: MCPMessage (tools)
-    Note over Client,Server: Ongoing MCP exchange...
+    Note over OuterFrame,InnerFrame: MCP Communication
+    OuterFrame->>InnerFrame: MCPMessage (initialize)
+    InnerFrame->>OuterFrame: MCPMessage (result)
+    OuterFrame->>InnerFrame: MCPMessage (tools/list)
+    InnerFrame->>OuterFrame: MCPMessage (tools)
+    Note over OuterFrame,InnerFrame: Ongoing MCP exchange...
 ```
+
+### Supported Architectures
+
+The PostMessage transport is designed to be flexible and supports both standard and inverted architectural patterns. The transport layer is decoupled from MCP protocol roles (Client vs Server) and instead focuses on window hierarchy position:
+
+#### Standard Architecture
+- **Outer Frame**: MCP Client (controlling window)
+- **Inner Frame**: MCP Server (subordinate iframe/popup)
+
+**Use Cases:**
+- Adding third-party tools to existing AI assistants
+- Embedding specialized servers into client applications
+- Plugin architectures where servers provide capabilities
+
+**Example:** A chat application embeds various tool providers (calculator, file analyzer, etc.) in iframes.
+
+#### Inverted Architecture  
+- **Outer Frame**: MCP Server (controlling window)
+- **Inner Frame**: MCP Client (subordinate iframe/popup)
+
+**Use Cases:**
+- Embedding sandboxed AI assistants into main applications
+- Providing AI copilots with access to application context
+- Secure AI integrations where the host app controls data access
+
+**Example:** A user dashboard application embeds an AI copilot that can query user information through MCP tools provided by the parent application.
+
+Both architectures use the same underlying transport components, with the Outer Frame using `OuterFrameTransport` + window controls, and the Inner Frame using `InnerFrameTransport` + message controls. This design enables maximum flexibility while maintaining security and clear separation of concerns.
 
 
 ### Message Types
@@ -491,7 +519,7 @@ As a new transport mechanism, the postMessage transport introduces no backwards 
 
 ## Reference Implementation
 
-A complete reference implementation demonstrating all protocol features is available at https://github.com/jmandel/mcp-postmessage. A hosted demo of the implementation can be accessed at https://joshuamandel.com/mcp-postmessage.
+A complete reference implementation demonstrating all protocol features is available at https://github.com/jmandel/mcp-postmessage. A hosted demo of the implementation can be accessed at https://jmandel.github.io/mcp-postmessage.
 
 ### Client Architecture
 

@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { PostMessageTransport } from '$sdk/client/transport.js';
-import { IframeWindowControl } from '$sdk/client/window-control.js';
+import { OuterFrameTransport, IframeWindowControl } from '$sdk/transport/postmessage/index.js';
 import { parseServerUrl, generateUUID, generateSessionId } from '$sdk/utils/helpers.js';
-import { SetupResult } from '$sdk/client/transport.js';
+import { SetupResult } from '$sdk/transport/postmessage/index.js';
 import { 
   SetupCompleteMessage,
   TransportMessage
@@ -21,7 +20,7 @@ interface Server {
   setupComplete: boolean;
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
   sessionId?: string;
-  transport?: PostMessageTransport;
+  transport?: OuterFrameTransport;
   client?: Client;
   ephemeralMessage?: string;
   transportVisibility?: {
@@ -49,10 +48,14 @@ interface Toast {
   message: string;
 }
 
-// Load server examples from JSON file (will be swapped during build)
-import serversData from './servers.dev.json';
+// Load server examples from JSON file with relative paths
+import serversData from './servers.json';
 
-const SERVER_EXAMPLES = typeof PRODUCTION_SERVERS !== 'undefined' ? PRODUCTION_SERVERS : serversData;
+// Expand relative URLs to full URLs based on current location
+const SERVER_EXAMPLES = serversData.map(server => ({
+  ...server,
+  url: new URL(server.url, window.location.href).href
+}));
 
 // Styling constants
 const STYLES = {
@@ -246,7 +249,7 @@ function App() {
         onError: () => showToast('error', 'Failed to load setup page')
       });
 
-      const transport = new PostMessageTransport(windowControl, {
+      const transport = new OuterFrameTransport(windowControl, {
         serverUrl: server.url,
         sessionId: server.id
       });
@@ -295,7 +298,7 @@ function App() {
         onError: () => showToast('error', 'Failed to load server')
       });
 
-      const transport = new PostMessageTransport(windowControl, {
+      const transport = new OuterFrameTransport(windowControl, {
         serverUrl: server.url,
         sessionId: server.id
       });
@@ -1034,6 +1037,59 @@ function App() {
           </div>
         ))}
       </div>
+
+      {/* Footer */}
+      <footer style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'rgba(31, 41, 55, 0.95)',
+        color: 'white',
+        padding: '0.75rem 1rem',
+        fontSize: '0.875rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: '1rem',
+        backdropFilter: 'blur(10px)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        zIndex: 1000
+      }}>
+        <span>🔄 Standard Architecture Demo</span>
+        <span style={{ color: '#9ca3af' }}>•</span>
+        <a 
+          href="./inverted" 
+          target="_blank"
+          style={{ color: '#60a5fa', textDecoration: 'none' }}
+          onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline'}
+          onMouseOut={(e) => e.currentTarget.style.textDecoration = 'none'}
+        >
+          🔄 Try Inverted Architecture
+        </a>
+        <span style={{ color: '#9ca3af' }}>•</span>
+        <a 
+          href="https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1005" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={{ color: '#60a5fa', textDecoration: 'none' }}
+          onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline'}
+          onMouseOut={(e) => e.currentTarget.style.textDecoration = 'none'}
+        >
+          📋 SEP Discussion
+        </a>
+        <span style={{ color: '#9ca3af' }}>•</span>
+        <a 
+          href="https://github.com/jmandel/mcp-postmessage" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={{ color: '#60a5fa', textDecoration: 'none' }}
+          onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline'}
+          onMouseOut={(e) => e.currentTarget.style.textDecoration = 'none'}
+        >
+          📦 Source Code
+        </a>
+      </footer>
 
       <style>{`
         @keyframes slideIn {

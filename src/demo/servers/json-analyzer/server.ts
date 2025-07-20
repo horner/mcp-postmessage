@@ -6,11 +6,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { 
-  PostMessageTransport
-} from '$sdk/server/transport.js';
-import { 
-  PostMessageServerWindowControl
-} from '$sdk/server/window-control.js';
+  InnerFrameTransport,
+  PostMessageInnerControl
+} from '$sdk/transport/postmessage/index.js';
 import { 
   getServerPhase, 
   isInWindowContext,
@@ -511,7 +509,7 @@ const CONFIG = {
   message: 'JSON file ready for analysis!'
 };
 
-let transport: PostMessageTransport;
+let transport: InnerFrameTransport;
 
 function showPhase(phase: 'setup' | 'transport'): void {
   document.getElementById('loading')?.classList.add('hidden');
@@ -539,8 +537,8 @@ async function main() {
   if (!isInWindowContext()) throw new Error('JSON Analyzer needs a window');
   
   console.log('[JSON-ANALYZER] Creating transport with requiresVisibleSetup: true');
-  transport = new PostMessageTransport(
-    new PostMessageServerWindowControl(CONFIG.origins),
+  transport = new InnerFrameTransport(
+    new PostMessageInnerControl(CONFIG.origins),
     { requiresVisibleSetup: true }
   );
   

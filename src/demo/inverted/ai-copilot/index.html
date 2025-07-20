@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Copilot - Inner Frame MCP Client</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 100%;
+        }
+        
+        .chat-header {
+            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            color: white;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: 0 2px 8px rgba(108, 92, 231, 0.2);
+        }
+        
+        .copilot-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 0.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .header-info h1 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        .header-info p {
+            margin: 0;
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        
+        .connection-status {
+            margin-left: auto;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .message {
+            max-width: 85%;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            color: white;
+            border-bottom-right-radius: 0.25rem;
+        }
+        
+        .message.assistant {
+            align-self: flex-start;
+            background: white;
+            color: #2d3436;
+            border: 1px solid #e9ecef;
+            border-bottom-left-radius: 0.25rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .message.system {
+            align-self: center;
+            background: #e8f4f8;
+            color: #2980b9;
+            border: 1px solid #bde4f0;
+            font-size: 0.85rem;
+            text-align: center;
+            max-width: 95%;
+        }
+        
+        .message.error {
+            align-self: center;
+            background: #ffe6e6;
+            color: #e74c3c;
+            border: 1px solid #ffcccc;
+            font-size: 0.85rem;
+            text-align: center;
+            max-width: 95%;
+        }
+        
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            padding: 0.75rem 1rem;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 1rem;
+            border-bottom-left-radius: 0.25rem;
+            max-width: 85%;
+        }
+        
+        .typing-dots {
+            display: flex;
+            gap: 0.25rem;
+        }
+        
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #6c5ce7;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+        
+        .typing-dot:nth-child(1) { animation-delay: 0s; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        
+        @keyframes typing {
+            0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+            30% { opacity: 1; transform: scale(1); }
+        }
+        
+        .chat-input-container {
+            padding: 1rem;
+            background: white;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+        }
+        
+        .chat-input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 1.5rem;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            outline: none;
+            resize: none;
+            min-height: 20px;
+            max-height: 100px;
+            font-family: inherit;
+            line-height: 1.4;
+        }
+        
+        .chat-input:focus {
+            border-color: #6c5ce7;
+            box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+        }
+        
+        .send-button {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .send-button:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+        }
+        
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .quick-actions {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0 1rem 1rem 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .quick-action {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 1rem;
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #6c5ce7;
+            font-weight: 500;
+        }
+        
+        .quick-action:hover {
+            background: #6c5ce7;
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(108, 92, 231, 0.2);
+        }
+        
+        .welcome-message {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: #636e72;
+        }
+        
+        .welcome-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .connection-error {
+            background: #ffe6e6;
+            border: 1px solid #ffcccc;
+            color: #e74c3c;
+            padding: 1rem;
+            margin: 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+        
+        .retry-button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .retry-button:hover {
+            background: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <div class="copilot-icon">🤖</div>
+            <div class="header-info">
+                <h1>AI Copilot</h1>
+                <p>Your personal assistant with access to your dashboard data</p>
+            </div>
+            <div class="connection-status" id="connection-status">Connecting...</div>
+        </div>
+        
+        <div id="chat-messages" class="chat-messages">
+            <div id="welcome-state" class="welcome-message">
+                <div class="welcome-icon">💭</div>
+                <div>Hi! I'm your AI assistant. I can help you with information about your projects, team, and system status.</div>
+                <div style="margin-top: 1rem; font-size: 0.9rem;">Try asking me "Who am I?" or "What are my current projects?"</div>
+            </div>
+            
+            <div id="connection-error" class="connection-error" style="display: none;">
+                <div>❌ Unable to connect to the dashboard</div>
+                <div style="font-size: 0.9rem; margin-top: 0.5rem;">I can't access your data right now. Please check your connection.</div>
+                <button class="retry-button" onclick="reconnect()">Retry Connection</button>
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typing-indicator">
+            <div class="typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+        
+        <div class="quick-actions" id="quick-actions" style="display: none;">
+            <button class="quick-action" onclick="sendQuickMessage('Who am I?')">👤 Who am I?</button>
+            <button class="quick-action" onclick="sendQuickMessage('What are my current projects?')">📂 My Projects</button>
+            <button class="quick-action" onclick="sendQuickMessage('What is the system health?')">🏥 System Health</button>
+            <button class="quick-action" onclick="sendQuickMessage('Show me team statistics')">📊 Team Stats</button>
+        </div>
+        
+        <div class="chat-input-container">
+            <textarea 
+                id="chat-input" 
+                class="chat-input" 
+                placeholder="Ask me about your projects, team, or system status..."
+                rows="1"
+                disabled></textarea>
+            <button id="send-button" class="send-button" onclick="sendMessage()" disabled>
+                ➤
+            </button>
+        </div>
+    </div>
+    
+    <script type="module" src="./client.ts"></script>
+</body>
+</html>

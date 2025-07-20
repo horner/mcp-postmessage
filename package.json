@@ -4,14 +4,9 @@
   "description": "Reference implementation for MCP PostMessage transport",
   "type": "module",
   "scripts": {
-    "dev": "bun --hot server.ts",
-    "build": "bun run build.ts",
+    "dev": "bun src/demo/index.html src/demo/inverted/index.html src/demo/inverted/ai-copilot/index.html src/demo/servers/**/*.html --port 3000 --hot",
+    "build": "bun build src/demo/index.html src/demo/inverted/index.html src/demo/inverted/ai-copilot/index.html src/demo/servers/**/*.html --outdir dist --minify",
     "build:sdk": "bun build --target=bun --outdir=./dist --entrypoints=./src/sdk/client/transport.ts ./src/sdk/server/transport.ts",
-    "demo": "./run-demo.sh",
-    "demo:client": "cd src/demo/client && bun --port 3000 index.html --hot",
-    "demo:pi": "cd src/demo/servers/pi-calculator && bun --port 3001 index.html --hot",
-    "demo:mermaid": "cd src/demo/servers/mermaid-editor && bun --port 3001 index.html --hot",
-    "demo:json": "cd src/demo/servers/json-analyzer && bun --port 3001 index.html --hot",
     "type-check": "bunx tsc --noEmit",
     "preview": "cd dist && bun --port 3000 ."
   },
@@ -31,13 +26,17 @@
     "typescript": "^5.0.0"
   },
   "exports": {
-    "./client": {
-      "import": "./src/sdk/client/transport.js",
-      "types": "./src/sdk/client/transport.d.ts"
+    "./transport": {
+      "import": "./src/sdk/transport/postmessage/index.js",
+      "types": "./src/sdk/transport/postmessage/index.d.ts"
     },
-    "./server": {
-      "import": "./src/sdk/server/transport.js",
-      "types": "./src/sdk/server/transport.d.ts"
+    "./outer-frame": {
+      "import": "./src/sdk/transport/postmessage/outer-frame.js",
+      "types": "./src/sdk/transport/postmessage/outer-frame.d.ts"
+    },
+    "./inner-frame": {
+      "import": "./src/sdk/transport/postmessage/inner-frame.js",
+      "types": "./src/sdk/transport/postmessage/inner-frame.d.ts"
     },
     "./types": {
       "import": "./src/sdk/types/postmessage.js",
@@ -46,10 +45,6 @@
     "./utils": {
       "import": "./src/sdk/utils/helpers.js",
       "types": "./src/sdk/utils/helpers.d.ts"
-    },
-    "./window-control": {
-      "import": "./src/sdk/client/window-control.js",
-      "types": "./src/sdk/client/window-control.d.ts"
     }
   },
   "files": [

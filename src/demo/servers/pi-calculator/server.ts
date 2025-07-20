@@ -3,8 +3,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { PostMessageTransport } from '$sdk/server/transport.js';
-import { PostMessageServerWindowControl } from '$sdk/server/window-control.js';
+import { InnerFrameTransport, PostMessageInnerControl } from '$sdk/transport/postmessage/index.js';
 import { getServerPhase, isInWindowContext } from '$sdk/utils/helpers.js';
 
 let totalIterations = 0, totalInside = 0;
@@ -13,39 +12,62 @@ let allPoints: Array<{ x: number; y: number; isInside: boolean }> = [];
 function setupCanvas() {
   const canvas = document.getElementById('visualization') as HTMLCanvasElement;
   const ctx = canvas?.getContext('2d');
-  if (!canvas || !ctx) return { ctx: null, rect: { width: 0, height: 0 } };
+  if (!canvas || !ctx) return { ctx: null, rect: { width: 0, height: 0 }, scale: 1 };
+  
+  // Force canvas to fill its container
+  const container = canvas.parentElement;
+  if (container) {
+    const containerRect = container.getBoundingClientRect();
+    console.log(`[PI] Container size: ${containerRect.width}x${containerRect.height}`);
+    
+    // Set canvas to exactly fill container
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+  }
   
   const rect = canvas.getBoundingClientRect();
+  console.log(`[PI] Canvas rect: ${rect.width}x${rect.height}`);
+  
   const ratio = window.devicePixelRatio || 1;
   
   canvas.width = rect.width * ratio;
   canvas.height = rect.height * ratio;
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
   ctx.scale(ratio, ratio);
   
-  // Clear and draw circle
+  // Calculate scale to make unit circle fill most of the space
+  const margin = 10; // Minimal margin
+  const availableSize = Math.min(rect.width, rect.height) - margin;
+  const scale = Math.max(10, availableSize / 2); // Ensure minimum radius of 10px
+  
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  
+  // Clear canvas
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, rect.width, rect.height);
+  
+  // Draw unit circle (represents the 1x1 square's inscribed circle)
   ctx.strokeStyle = '#333';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  const radius = Math.min(rect.width, rect.height) / 2 - 20;
-  ctx.arc(rect.width / 2, rect.height / 2, radius, 0, 2 * Math.PI);
+  ctx.arc(centerX, centerY, scale, 0, 2 * Math.PI);
   ctx.stroke();
   
-  return { ctx, rect };
+  return { ctx, rect, scale };
 }
 
 function drawPoint(
   ctx: CanvasRenderingContext2D, 
   rect: DOMRect, 
+  scale: number,
   x: number, 
   y: number, 
   isInside: boolean
 ) {
-  const radius = Math.min(rect.width, rect.height) / 2 - 20;
-  const px = rect.width / 2 + x * radius;
-  const py = rect.height / 2 + y * radius;
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const px = centerX + x * scale;
+  const py = centerY + y * scale;
   ctx.fillStyle = isInside ? '#4CAF50' : '#ff6b6b';
   ctx.fillRect(px - 1, py - 1, 2, 2);
 }
@@ -61,10 +83,21 @@ function updateDisplay() {
 }
 
 function redrawCanvas() {
-  const { ctx, rect } = setupCanvas();
+  console.log('[PI] Redrawing canvas...');
+  const { ctx, rect, scale } = setupCanvas();
   if (!ctx) return;
   
-  allPoints.forEach(point => drawPoint(ctx, rect, point.x, point.y, point.isInside));
+  // Skip drawing if canvas is too small
+  if (rect.width < 20 || rect.height < 20) {
+    console.log(`[PI] Canvas too small (${rect.width}x${rect.height}), skipping draw`);
+    return;
+  }
+  
+  console.log(`[PI] Canvas size: ${rect.width}x${rect.height}, scale: ${scale}`);
+  
+  allPoints.forEach(point => 
+    drawPoint(ctx, rect, scale, point.x, point.y, point.isInside)
+  );
   if (totalIterations > 0) updateDisplay();
 }
 
@@ -73,12 +106,21 @@ function calculatePi(iterations: number) {
   const ctx = canvas?.getContext('2d');
   if (!canvas || !ctx) return { pi: 0, accuracy: 0, totalIterations: 0 };
   
-  const rect = canvas.getBoundingClientRect();
+  let scale: number;
   
-  // Only setup canvas if it's the first calculation
+  // Setup canvas and get current scale
   if (totalIterations === 0) {
-    setupCanvas();
+    const setup = setupCanvas();
+    scale = setup.scale;
+  } else {
+    // Get current scale for existing canvas
+    const rect = canvas.getBoundingClientRect();
+    const margin = 10;
+    const availableSize = Math.min(rect.width, rect.height) - margin;
+    scale = Math.max(10, availableSize / 2);
   }
+  
+  const rect = canvas.getBoundingClientRect();
   
   for (let i = 0; i < iterations; i++) {
     const x = Math.random() * 2 - 1;
@@ -89,8 +131,8 @@ function calculatePi(iterations: number) {
     if (isInside) totalInside++;
     totalIterations++;
     
-    // Draw new point on existing canvas
-    drawPoint(ctx, rect, x, y, isInside);
+    // Draw new point on existing canvas with current scale
+    drawPoint(ctx, rect, scale, x, y, isInside);
   }
   
   updateDisplay();
@@ -110,8 +152,8 @@ function reset() {
 async function main() {
   if (!isInWindowContext()) throw new Error('π needs a window');
   
-  const windowControl = new PostMessageServerWindowControl(['*']);
-  const transport = new PostMessageTransport(windowControl, { requiresVisibleSetup: false });
+  const windowControl = new PostMessageInnerControl(['*']);
+  const transport = new InnerFrameTransport(windowControl, { requiresVisibleSetup: false });
   
   if (getServerPhase() === 'setup') {
     await transport.prepareSetup();
@@ -159,12 +201,34 @@ async function main() {
     
     await server.connect(transport);
     
-    // Resize handling
+    // Resize handling - multiple event sources for better detection
     let resizeTimeout: number;
-    window.addEventListener('resize', () => {
+    const handleResize = () => {
       clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(redrawCanvas, 100);
-    });
+      resizeTimeout = window.setTimeout(() => {
+        console.log('[PI] Resize detected, redrawing canvas');
+        redrawCanvas();
+      }, 100);
+    };
+    
+    // Listen to window resize
+    window.addEventListener('resize', handleResize);
+    
+    // Use ResizeObserver on the container, not just canvas
+    if (window.ResizeObserver) {
+      const canvas = document.getElementById('visualization');
+      const container = canvas?.parentElement;
+      if (container) {
+        console.log('[PI] Setting up ResizeObserver on container');
+        const resizeObserver = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            console.log(`[PI] Container resized to: ${entry.contentRect.width}x${entry.contentRect.height}`);
+            handleResize();
+          }
+        });
+        resizeObserver.observe(container);
+      }
+    }
     
     // Initialize UI
     document.getElementById('loading')?.classList.add('hidden');

@@ -6,11 +6,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { 
-  PostMessageTransport
-} from '$sdk/server/transport.js';
-import { 
-  PostMessageServerWindowControl
-} from '$sdk/server/window-control.js';
+  InnerFrameTransport,
+  PostMessageInnerControl
+} from '$sdk/transport/postmessage/index.js';
 import { 
   getServerPhase, 
   isInWindowContext 
@@ -287,8 +285,8 @@ const CONFIG = {
 async function main() {
   if (!isInWindowContext()) throw new Error('Mermaid needs a window');
   
-  const transport = new PostMessageTransport(
-    new PostMessageServerWindowControl(CONFIG.origins),
+  const transport = new InnerFrameTransport(
+    new PostMessageInnerControl(CONFIG.origins),
     { requiresVisibleSetup: false }
   );
   
