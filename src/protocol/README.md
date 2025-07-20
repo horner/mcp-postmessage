@@ -80,7 +80,7 @@ The postMessage transport defines two distinct phases:
 1. **Setup Phase**: One-time configuration when adding a server to the client
 2. **Transport Phase**: Repeated connections for MCP communication
 
-Each phase has its own handshake protocol. Servers detect the current phase via URL hash parameters: setup phase uses `#setup`hash on the server URL (e.g., `https://example.com/mcp-server#setup`) while transport phase uses the base URL with no hash parameter.
+Each phase has its own handshake protocol. Servers detect the current phase via URL hash parameters: setup phase uses `#setup` hash on the server URL (e.g., `https://example.com/mcp-server#setup`) while transport phase uses the base URL with no hash parameter.
 
 **Note**: The setup phase is always required in terms of protocol steps, but can be transparent to users. Servers can immediately respond with a handshake completion, making setup instantaneous without interrupting UX or requiring user interaction.
 
@@ -97,7 +97,7 @@ sequenceDiagram
 
     Note over OuterFrame,InnerFrame: Setup Phase
     OuterFrame->>OuterFrame: Start listening for messages
-    OuterFrame->>InnerFrame: Load subordinate window with "#setup" hash
+    OuterFrame->>InnerFrame: Load subordinate window with "setup" hash
     InnerFrame->>OuterFrame: SetupHandshake (targetOrigin: '*')
     OuterFrame->>InnerFrame: SetupHandshakeReply (sessionId: abc123)
     Note over InnerFrame: Pins Outer Frame origin<br/>Optional user interaction
