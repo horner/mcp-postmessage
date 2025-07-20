@@ -2,11 +2,13 @@
 
 ## Preamble
 
-**Title:** postMessage Transport  
-**Author:** Josh Mandel (@jmandel)  
-**Status:** Proposal  
-**Type:** Standards Track  
-**Created:** 2025-07-19  
+**Title:** postMessage Transport
+**Author:** Josh Mandel (@jmandel)
+**Status:** Proposal
+**Type:** Standards Track
+**Created:** 2025-07-19
+**Reference Implementation:** [Demo](https://jmandel.github.io/mcp-postmessage) | [Source](https://github.com/jmandel/mcp-postmessage)
+
 
 ## Abstract
 
