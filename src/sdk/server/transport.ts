@@ -1,21 +1,36 @@
 /**
- * Unified PostMessage Transport for MCP Servers
- * 
- * Handles both setup and transport phases with a clean API:
- * - Setup: prepareSetup() → user interaction → completeSetup()
- * - Transport: prepareToConnect() → server creation → connect()
+ * PostMessage Transport for MCP Servers
+ * Handles both setup and transport phases with a clean API.
  */
 
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { 
   SetupCompleteMessage, 
+  SetupHandshakeMessage,
+  SetupHandshakeReplyMessage,
   TransportAcceptedMessage,
+  TransportHandshakeMessage,
+  TransportHandshakeReplyMessage,
   MCPMessage,
-  isMCPMessage 
+  isMCPMessage,
+  isSetupMessage,
+  isTransportMessage
 } from '$protocol/types.js';
 import { ServerWindowControl } from './window-control.js';
-import { handshakeSetupPhase, handshakeTransportPhase, SetupHandshakeResult, TransportHandshakeResult } from './handshake.js';
+import { createLogger } from '$sdk/utils/logger.js';
+import { withTimeout } from '$sdk/utils/helpers.js';
+
+interface SetupHandshakeResult {
+  origin: string;
+  sessionId: string;
+  requiresVisibleSetup: boolean;
+}
+
+interface TransportHandshakeResult {
+  origin: string;
+  sessionId: string;
+}
 
 export interface SetupConfig {
   requiresVisibleSetup: boolean;
@@ -51,128 +66,76 @@ export class PostMessageTransport implements Transport {
     return this.setupHandshakeResult?.sessionId || this.transportHandshakeResult?.sessionId || '';
   }
 
-  /**
-   * Prepare for setup phase - performs setup handshake
-   */
+  /** Prepare for setup phase - performs setup handshake */
   async prepareSetup(): Promise<void> {
-    console.log('[SERVER TRANSPORT V2 SETUP] prepareSetup() called');
-    console.log('[SERVER TRANSPORT V2 SETUP] Current phase:', this.phase);
-    console.log('[SERVER TRANSPORT V2 SETUP] requiresVisibleSetup:', this.setupConfig?.requiresVisibleSetup || false);
+    const logger = createLogger('SERVER', 'MCP-SETUP-HANDSHAKE');
     
-    if (this.phase !== 'idle') {
-      throw new Error('Transport already in use');
-    }
+    if (this.phase !== 'idle') throw new Error('Transport already in use');
     
-    console.log('[SERVER TRANSPORT V2 SETUP] Starting setup handshake');
     try {
-      this.setupHandshakeResult = await handshakeSetupPhase(this.control, {
-        requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false
-      });
-      console.log('[SERVER TRANSPORT V2 SETUP] Setup handshake completed:', this.setupHandshakeResult);
+      this.setupHandshakeResult = await this.performSetupHandshake();
       this.phase = 'setup';
-      console.log('[SERVER TRANSPORT V2 SETUP] Phase updated to setup');
+      logger.log('Setup handshake completed');
     } catch (error) {
-      console.error('[SERVER TRANSPORT V2 SETUP] Setup handshake failed:', error);
+      logger.error('Setup handshake failed:', error);
       throw error;
     }
   }
 
-  /**
-   * Complete setup phase - sends setup completion message
-   */
+  /** Complete setup phase - sends setup completion message */
   async completeSetup(result: SetupResult): Promise<void> {
-    console.log('[SERVER TRANSPORT V2 SETUP] completeSetup() called');
-    console.log('[SERVER TRANSPORT V2 SETUP] Current phase:', this.phase);
-    console.log('[SERVER TRANSPORT V2 SETUP] Setup result:', result);
-    
-    if (this.phase !== 'setup') {
-      throw new Error('Must call prepareSetup() first');
-    }
+    if (this.phase !== 'setup') throw new Error('Must call prepareSetup() first');
+    if (this.closed) throw new Error('Transport already closed');
 
-    if (this.closed) {
-      throw new Error('Transport already closed');
-    }
-
-    console.log('[SERVER TRANSPORT V2 SETUP] Setting up message relay');
-    // Set up message relay for any potential MCP messages during setup
     this.unsubscribe = this.control.onMessage((data) => {
       if (isMCPMessage(data)) {
-        const mcpMessage = data as MCPMessage;
-        this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
+        this.onmessage?.((data as MCPMessage).payload as JSONRPCMessage);
       }
     });
 
-    // Send setup completion
-    const completeMsg: SetupCompleteMessage = {
+    this.control.postMessage({
       type: 'MCP_SETUP_COMPLETE',
       status: 'success',
       serverTitle: result.serverTitle,
       transportVisibility: result.transportVisibility,
       ephemeralMessage: result.ephemeralMessage
-    };
-
-    console.log('[SERVER TRANSPORT V2 SETUP] Sending setup completion message:', completeMsg);
-    this.control.postMessage(completeMsg);
-    console.log('[SERVER TRANSPORT V2 SETUP] Setup completion message sent');
+    });
   }
 
-  /**
-   * Prepare for transport phase - performs transport handshake
-   */
+  /** Prepare for transport phase - performs transport handshake */
   async prepareToConnect(): Promise<void> {
-    if (this.phase !== 'idle') {
-      throw new Error('Transport already in use');
-    }
+    if (this.phase !== 'idle') throw new Error('Transport already in use');
     
-    this.transportHandshakeResult = await handshakeTransportPhase(this.control);
+    this.transportHandshakeResult = await this.performTransportHandshake();
     this.phase = 'transport';
   }
 
-  /**
-   * Start transport phase - sends transport accepted and sets up message relay
-   */
+  /** Start transport phase - sends transport accepted and sets up message relay */
   async start(): Promise<void> {
-    if (this.phase !== 'transport') {
-      throw new Error('Must call prepareToConnect() first');
-    }
+    if (this.phase !== 'transport') throw new Error('Must call prepareToConnect() first');
+    if (this.closed) throw new Error('Transport already closed');
+    if (this.unsubscribe) throw new Error('Transport already started');
 
-    if (this.closed) {
-      throw new Error('Transport already closed');
-    }
-
-    if (this.unsubscribe) {
-      throw new Error('Transport already started');
-    }
-
-    // Set up message relay
     this.unsubscribe = this.control.onMessage((data) => {
       if (isMCPMessage(data)) {
-        const mcpMessage = data as MCPMessage;
-        this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
+        this.onmessage?.((data as MCPMessage).payload as JSONRPCMessage);
       }
     });
 
-    // Send transport accepted
-    const acceptedMsg: TransportAcceptedMessage = {
+    this.control.postMessage({
       type: 'MCP_TRANSPORT_ACCEPTED',
       sessionId: this.transportHandshakeResult!.sessionId
-    };
-
-    this.control.postMessage(acceptedMsg);
+    });
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
-    if (this.closed) {
-      throw new Error('Transport closed');
-    }
+    if (this.closed) throw new Error('Transport closed');
 
     try {
-      const mcpMessage: MCPMessage = {
+      this.control.postMessage({
         type: 'MCP_MESSAGE',
         payload: message as any
-      };
-      
-      this.control.postMessage(mcpMessage);
+      });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.onerror?.(err);
@@ -181,13 +144,95 @@ export class PostMessageTransport implements Transport {
   }
 
   async close(): Promise<void> {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
 
     this.closed = true;
     this.unsubscribe?.();
     this.control.destroy();
     this.onclose?.();
+  }
+
+  // ============================================================================
+  // PRIVATE HANDSHAKE METHODS
+  // ============================================================================
+
+  /** Perform setup handshake */
+  private async performSetupHandshake(): Promise<SetupHandshakeResult> {
+    return withTimeout(
+      new Promise<SetupHandshakeResult>((resolve, reject) => {
+        let handshakeComplete = false;
+
+        const unsubscribe = this.control.onMessage((data) => {
+          if (!isSetupMessage(data)) return;
+
+          if (data.type === 'MCP_SETUP_HANDSHAKE_REPLY' && !handshakeComplete) {
+            const reply = data as SetupHandshakeReplyMessage;
+            
+            if (reply.protocolVersion !== '1.0') {
+              cleanup();
+              reject(new Error(`Incompatible protocol version: ${reply.protocolVersion}`));
+              return;
+            }
+
+            handshakeComplete = true;
+            cleanup();
+            resolve({
+              origin: this.control.pinnedOrigin!,
+              sessionId: reply.sessionId,
+              requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false
+            });
+          }
+        });
+
+        const cleanup = () => unsubscribe();
+
+        this.control.postMessage({
+          type: 'MCP_SETUP_HANDSHAKE',
+          protocolVersion: '1.0',
+          requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false
+        });
+      }),
+      30000,
+      'Setup handshake timeout'
+    );
+  }
+
+  /** Perform transport handshake */
+  private async performTransportHandshake(): Promise<TransportHandshakeResult> {
+    return withTimeout(
+      new Promise<TransportHandshakeResult>((resolve, reject) => {
+        let handshakeComplete = false;
+
+        const unsubscribe = this.control.onMessage((data) => {
+          if (!isTransportMessage(data)) return;
+
+          if (data.type === 'MCP_TRANSPORT_HANDSHAKE_REPLY' && !handshakeComplete) {
+            const reply = data as TransportHandshakeReplyMessage;
+            
+            if (reply.protocolVersion !== '1.0') {
+              cleanup();
+              reject(new Error(`Incompatible protocol version: ${reply.protocolVersion}`));
+              return;
+            }
+
+            handshakeComplete = true;
+            cleanup();
+            resolve({
+              origin: this.control.pinnedOrigin!,
+              sessionId: reply.sessionId
+            });
+          }
+        });
+
+        const cleanup = () => unsubscribe();
+
+        this.control.postMessage({
+          type: 'MCP_TRANSPORT_HANDSHAKE',
+          protocolVersion: '1.0'
+        });
+      }),
+      30000,
+      'Transport handshake timeout'
+    );
   }
 }

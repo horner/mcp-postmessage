@@ -52,8 +52,39 @@ interface Toast {
 // Load server examples from JSON file (will be swapped during build)
 import serversData from './servers.dev.json';
 
-// This constant will be replaced at build time with production data
 const SERVER_EXAMPLES = typeof PRODUCTION_SERVERS !== 'undefined' ? PRODUCTION_SERVERS : serversData;
+
+// Styling constants
+const STYLES = {
+  input: {
+    width: '100%',
+    padding: '0.5rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.375rem',
+    fontSize: '0.875rem'
+  },
+  button: {
+    padding: '0.5rem 0.75rem',
+    border: 'none',
+    borderRadius: '0.375rem',
+    cursor: 'pointer',
+    fontWeight: 500
+  },
+  card: {
+    padding: '1rem',
+    background: 'white',
+    border: '1px solid #e5e7eb',
+    borderRadius: '0.5rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+  },
+  emptyState: {
+    textAlign: 'center' as const,
+    padding: '2rem',
+    color: '#6b7280',
+    border: '2px dashed #d1d5db',
+    borderRadius: '0.375rem'
+  }
+};
 
 // ============================================================================
 // MAIN APP COMPONENT
@@ -72,17 +103,10 @@ function App() {
   const setupIframeRef = useRef<HTMLIFrameElement>(null);
   const transportIframeRefs = useRef<Map<string, HTMLIFrameElement>>(new Map());
   
-  // ============================================================================
-  // TOAST MANAGEMENT
-  // ============================================================================
-
   const showToast = (type: Toast['type'], message: string) => {
     const id = generateUUID();
     setToasts(prev => [...prev, { id, type, message }]);
-    
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 5000);
+    setTimeout(() => setToasts(prev => prev.filter(toast => toast.id !== id)), 5000);
   };
 
   // Initialize servers from localStorage on mount
@@ -120,15 +144,8 @@ function App() {
 
   const saveServersToStorage = (servers: Server[]) => {
     try {
-      // Only save persistent data, not runtime state
-      const persistentServers = servers.map(server => ({
-        id: server.id,
-        name: server.name,
-        url: server.url,
-        setupComplete: server.setupComplete,
-        transportVisibility: server.transportVisibility,
-        // Don't save runtime state like connectionStatus, transport, etc.
-      }));
+      const persistentServers = servers.map(({ id, name, url, setupComplete, transportVisibility }) => 
+        ({ id, name, url, setupComplete, transportVisibility }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentServers));
     } catch (error) {
       console.warn('Failed to save servers to localStorage:', error);
@@ -138,59 +155,25 @@ function App() {
   const loadServersFromStorage = (): Server[] => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const persistentServers = JSON.parse(stored);
-        return persistentServers.map((server: any) => ({
-          ...server,
-          connectionStatus: 'disconnected' as const,
-          // Runtime state will be initialized as needed
-        }));
-      }
+      if (!stored) return [];
+      return JSON.parse(stored).map((server: any) => ({ ...server, connectionStatus: 'disconnected' as const }));
     } catch (error) {
       console.warn('Failed to load servers from localStorage:', error);
+      return [];
     }
-    return [];
   };
 
-  // ============================================================================
-  // COMPUTED VALUES
-  // ============================================================================
-
   const connectedServers = servers.filter(s => s.connectionStatus === 'connected');
-  
-  const serversWithIframes = servers.filter(server => 
-    server.setupComplete && server.transportVisibility
-  );
-  
-  const visibleServerCount = serversWithIframes.filter(server => {
-    if (server.transportVisibility?.requirement === 'required') {
-      return true;
-    }
-    if (server.transportVisibility?.requirement === 'optional') {
-      return iframeVisibility[server.id] !== false;
-    }
-    return false;
-  }).length;
-  
-  const allTools = connectedServers.flatMap(server => 
-    (server.tools || []).map(tool => ({
-      ...tool,
-      serverId: server.id,
-      serverName: server.name
-    }))
-  );
-
-  // ============================================================================
-  // IFRAME MANAGEMENT
-  // ============================================================================
+  const serversWithIframes = servers.filter(s => s.setupComplete && s.transportVisibility);
+  const visibleServerCount = serversWithIframes.filter(s => 
+    s.transportVisibility?.requirement === 'required' || 
+    (s.transportVisibility?.requirement === 'optional' && iframeVisibility[s.id] !== false)
+  ).length;
 
   const getOrCreateTransportIframe = (serverId: string): HTMLIFrameElement => {
     if (!transportIframeRefs.current.has(serverId)) {
       const iframe = document.createElement('iframe');
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.border = 'none';
-      iframe.style.background = 'white';
+      Object.assign(iframe.style, { width: '100%', height: '100%', border: 'none', background: 'white' });
       iframe.sandbox.add('allow-scripts', 'allow-same-origin', 'allow-forms');
       iframe.allow = 'geolocation; clipboard-read; clipboard-write';
       iframe.title = `Server ${serverId} - Transport`;
@@ -201,10 +184,7 @@ function App() {
 
   const removeTransportIframe = (serverId: string) => {
     const iframe = transportIframeRefs.current.get(serverId);
-    if (iframe?.parentNode) {
-      // Remove iframe from DOM and clean up resources
-      iframe.parentNode.removeChild(iframe);
-    }
+    iframe?.parentNode?.removeChild(iframe);
     transportIframeRefs.current.delete(serverId);
   };
 
@@ -213,17 +193,13 @@ function App() {
   // ============================================================================
 
   const handleExampleSelect = (url: string) => {
-    // Absolutify the URL using browser's URL constructor
     const absoluteUrl = new URL(url, window.location.href).href;
     setNewServerUrl(absoluteUrl);
     setSelectedExample(url);
   };
 
   const addServer = async (url: string) => {
-    if (!url.trim()) {
-      showToast('error', 'Please enter a server URL');
-      return;
-    }
+    if (!url.trim()) return showToast('error', 'Please enter a server URL');
 
     const newServer: Server = {
       id: generateUUID(),
@@ -236,19 +212,12 @@ function App() {
     setServers(prev => [...prev, newServer]);
     setNewServerUrl('');
     setSelectedExample('');
-    
-    // Automatically start setup
     await runSetup(newServer);
   };
 
   const removeServer = (id: string) => {
     const server = servers.find(s => s.id === id);
-    
-    // Disconnect if this server is connected
-    if (server?.connectionStatus === 'connected') {
-      disconnect(id);
-    }
-    
+    if (server?.connectionStatus === 'connected') disconnect(id);
     setServers(prev => prev.filter(server => server.id !== id));
     showToast('info', 'Server removed');
   };
@@ -264,96 +233,46 @@ function App() {
   // ============================================================================
 
   const runSetup = async (server: Server) => {
-    console.log(`[SETUP] Starting setup for ${server.name}`);
-    
-    // Update existing server to connecting status
     updateServer(server.id, { connectionStatus: 'connecting' });
     setSetupServerUrl(server.url);
     
     try {
-      // Wait for modal iframe to be ready
       await new Promise(resolve => setTimeout(resolve, 0));
-      
-      if (!setupIframeRef.current) {
-        throw new Error('Setup iframe not available');
-      }
+      if (!setupIframeRef.current) throw new Error('Setup iframe not available');
 
       const windowControl = new IframeWindowControl({
         iframe: setupIframeRef.current,
-        setVisible: (visible) => {
-          console.log('[SETUP-APP] setVisible called with:', visible);
-          if (visible) {
-            // Server requires visible setup - show modal
-            console.log('[SETUP-APP] Showing setup modal');
-            setSetupModalVisible(true);
-          }
-        },
-        onNavigate: (url) => {
-          console.log(`[SETUP] Setup navigating to: ${url}`);
-        },
-        onLoad: () => {
-          console.log(`[SETUP] Setup iframe loaded`);
-        },
-        onError: (error) => {
-          console.error(`[SETUP] Setup iframe error:`, error);
-          showToast('error', 'Failed to load setup page');
-        }
+        setVisible: (visible) => visible && setSetupModalVisible(true),
+        onError: () => showToast('error', 'Failed to load setup page')
       });
 
-      console.log('[SETUP-APP] Creating transport with sessionId:', server.id, 'serverUrl:', server.url);
-      console.log('[SETUP-APP] WindowControl object:', windowControl);
-      
-      let transport;
-      try {
-        transport = new PostMessageTransport(windowControl, {
-          serverUrl: server.url,
-          sessionId: server.id
-        });
-        console.log('[SETUP-APP] Transport created successfully:', transport);
-      } catch (error) {
-        console.error('[SETUP-APP] Error creating transport:', error);
-        throw error;
-      }
+      const transport = new PostMessageTransport(windowControl, {
+        serverUrl: server.url,
+        sessionId: server.id
+      });
 
-      console.log('[SETUP-APP] Starting transport setup');
-      let result;
-      try {
-        result = await transport.setup();
-        console.log('[SETUP-APP] Transport setup completed:', result);
-      } catch (error) {
-        console.error('[SETUP-APP] Error during transport setup:', error);
-        throw error;
-      }
+      const result = await transport.setup();
       
       if (result.success) {
-        // Update the existing server
         updateServer(server.id, {
           name: result.serverTitle || server.name,
           setupComplete: true,
           connectionStatus: 'disconnected' as const,
           transportVisibility: result.transportVisibility
         });
-        
         showToast('success', result.ephemeralMessage || 'Setup completed successfully');
       } else {
-        // Setup failed - remove the server
         setServers(prev => prev.filter(s => s.id !== server.id));
         showToast('error', result.error?.message || 'Setup failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Setup failed';
-      console.error('Setup failed:', error);
-      // Setup failed - remove the server
       setServers(prev => prev.filter(s => s.id !== server.id));
       showToast('error', errorMessage);
     } finally {
       setSetupModalVisible(false);
       setSetupServerUrl('');
-      
-      // Clean up setup iframe
-      if (setupIframeRef.current) {
-        setupIframeRef.current.src = 'about:blank';
-      }
+      if (setupIframeRef.current) setupIframeRef.current.src = 'about:blank';
     }
   };
 
@@ -362,85 +281,41 @@ function App() {
   // ============================================================================
 
   const connect = async (server: Server) => {
-    if (!server.setupComplete) {
-      showToast('error', 'Server setup required before connecting');
-      return;
-    }
-    
-    console.log(`[TRANSPORT] Starting connection to ${server.name} at ${server.url}`);
+    if (!server.setupComplete) return showToast('error', 'Server setup required before connecting');
     
     updateServer(server.id, { connectionStatus: 'connecting' });
     
     try {
-      console.log(`[TRANSPORT] Creating iframe for server ${server.id}`);
       const iframe = getOrCreateTransportIframe(server.id);
-      
-      // The iframe should already be in the right column container by React
-      // We just need to make sure it's visible for transport to work
-      console.log(`[TRANSPORT] Iframe should be in right column container`);
       iframe.style.visibility = 'visible';
       
-      console.log(`[TRANSPORT] Creating window control for iframe`);
       const windowControl = new IframeWindowControl({
         iframe,
-        setVisible: () => {}, // Visibility controlled by layout
-        onNavigate: (url) => {
-          console.log(`[TRANSPORT] Transport navigating to: ${url}`);
-        },
-        onLoad: () => {
-          console.log(`[TRANSPORT] Transport iframe loaded`);
-        },
-        onError: (error) => {
-          console.error(`[TRANSPORT] Transport iframe error:`, error);
-          showToast('error', 'Failed to load server');
-        }
+        setVisible: () => {},
+        onError: () => showToast('error', 'Failed to load server')
       });
 
-      console.log(`[TRANSPORT] Creating PostMessageTransport`);
       const transport = new PostMessageTransport(windowControl, {
         serverUrl: server.url,
         sessionId: server.id
       });
 
       transport.onerror = (error) => {
-        console.error(`[TRANSPORT] Transport error:`, error);
         showToast('error', error.message);
-        updateServer(server.id, { 
-          connectionStatus: 'error',
-          lastError: error.message 
-        });
+        updateServer(server.id, { connectionStatus: 'error', lastError: error.message });
       };
 
-      // Navigate to transport URL and wait for load
       await windowControl.navigate(server.url);
-
-      console.log(`[TRANSPORT] Preparing to connect...`);
       await transport.prepareToConnect();
       
-      // Create SDK Client and connect
-      console.log(`[TRANSPORT] Creating MCP Client...`);
-      const client = new Client({
-        name: 'mcp-postmessage-demo-client',
-        version: '1.0.0'
-      });
-
-      console.log(`[TRANSPORT] Connecting client to transport...`);
+      const client = new Client({ name: 'mcp-postmessage-demo-client', version: '1.0.0' });
       await client.connect(transport);
-      console.log(`[TRANSPORT] Client connected successfully`);
       
-      // Get tools list using SDK
       try {
         const toolsResult = await client.listTools();
-        const tools = toolsResult.tools || [];
-        console.log(`[TRANSPORT] Retrieved ${tools.length} tools:`, tools);
-        
         updateServer(server.id, {
-          tools: tools.map(tool => ({
-            name: tool.name,
-            title: tool.title,
-            description: tool.description,
-            inputSchema: tool.inputSchema
-          }))
+          tools: (toolsResult.tools || []).map(({ name, title, description, inputSchema }) => 
+            ({ name, title, description, inputSchema }))
         });
       } catch (error) {
         console.warn('Failed to request tools list:', error);
@@ -449,31 +324,22 @@ function App() {
       updateServer(server.id, {
         connectionStatus: 'connected',
         sessionId: transport.sessionId,
-        transport: transport,
-        client: client
+        transport,
+        client
       });
       
-      // Configure iframe visibility based on server requirements
-      if (server.transportVisibility?.requirement === 'required') {
-        console.log(`[TRANSPORT] Server visibility is required, always visible`);
-        setIframeVisibility(prev => ({ ...prev, [server.id]: true }));
-      } else if (server.transportVisibility?.requirement === 'optional') {
-        console.log(`[TRANSPORT] Server visibility is optional, visible by default`);
-        setIframeVisibility(prev => ({ ...prev, [server.id]: true }));
-      } else {
-        console.log(`[TRANSPORT] Server should be hidden, not shown in layout`);
-        setIframeVisibility(prev => ({ ...prev, [server.id]: false }));
-      }
+      const requirement = server.transportVisibility?.requirement;
+      setIframeVisibility(prev => ({ 
+        ...prev, 
+        [server.id]: requirement === 'required' || requirement === 'optional' 
+      }));
       
       showToast('success', `Connected to ${server.name}`);
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Connection failed';
       showToast('error', errorMessage);
-      updateServer(server.id, { 
-        connectionStatus: 'error',
-        lastError: errorMessage 
-      });
+      updateServer(server.id, { connectionStatus: 'error', lastError: errorMessage });
     }
   };
 
@@ -510,102 +376,57 @@ function App() {
   // ============================================================================
 
   const callTool = async (serverId: string, toolName: string, params: any) => {
-    console.log(`[TOOL-CALL] Starting tool call for ${toolName} on server ${serverId}`);
-    
     const server = servers.find(s => s.id === serverId);
-    if (!server?.client) {
-      showToast('error', 'No active connection to this server');
-      return;
-    }
+    if (!server?.client) return showToast('error', 'No active connection to this server');
 
     try {
-      console.log(`[TOOL-CALL] Calling ${toolName} with params:`, params);
+      const result = await server.client.callTool({ name: toolName, arguments: params });
+      const resultText = (result.content?.[0]?.text) || JSON.stringify(result, null, 2);
       
-      // Use SDK Client for tool call
-      const result = await server.client.callTool({
-        name: toolName,
-        arguments: params
-      });
-      
-      // Display result
-      const resultText = (result.content && Array.isArray(result.content) && result.content[0]?.text) || JSON.stringify(result, null, 2);
       showToast('success', `${toolName} completed`);
-      
-      // Update a simple last result display
       updateServer(serverId, {
-        lastToolResult: {
-          toolName,
-          result: resultText,
-          timestamp: new Date()
-        }
+        lastToolResult: { toolName, result: resultText, timestamp: new Date() }
       });
-      
-      console.log(`[TOOL-CALL] ${toolName} completed:`, resultText);
-      
     } catch (error) {
-      console.error(`[TOOL-CALL] Error in callTool:`, error);
       const errorMessage = error instanceof Error ? error.message : 'Tool call failed';
       showToast('error', errorMessage);
-      
-      // Update with error
       updateServer(serverId, {
-        lastToolResult: {
-          toolName,
-          error: errorMessage,
-          timestamp: new Date()
-        }
+        lastToolResult: { toolName, error: errorMessage, timestamp: new Date() }
       });
     }
   };
 
   const getDefaultParamsForTool = (tool: any) => {
     const params: Record<string, any> = {};
+    if (!tool.inputSchema?.properties) return params;
     
-    if (tool.inputSchema && tool.inputSchema.properties) {
-      Object.entries(tool.inputSchema.properties).forEach(([key, schema]: [string, any]) => {
-        // Try to extract example from description using pattern "Example: (.*)"
-        let example = schema.examples?.[0] || schema.example;
-        
-        if (example === undefined && schema.description) {
-          const exampleMatch = schema.description.match(/Example:\s*(.+)/s);
-          if (exampleMatch) {
-            example = exampleMatch[1].trim();
-            // Convert to number if it's a numeric field
-            if ((schema.type === 'number' || schema.type === 'integer') && !isNaN(Number(example))) {
-              example = Number(example);
-            }
+    Object.entries(tool.inputSchema.properties).forEach(([key, schema]: [string, any]) => {
+      let example = schema.examples?.[0] || schema.example;
+      
+      if (example === undefined && schema.description) {
+        const exampleMatch = schema.description.match(/Example:\s*(.+)/s);
+        if (exampleMatch) {
+          example = exampleMatch[1].trim();
+          if ((schema.type === 'number' || schema.type === 'integer') && !isNaN(Number(example))) {
+            example = Number(example);
           }
         }
-        
-        if (example !== undefined) {
-          params[key] = example;
-        } else if (schema.type === 'number' || schema.type === 'integer') {
-          params[key] = schema.default || 1000;
-        } else if (schema.type === 'string') {
-          params[key] = schema.default || '';
-        } else if (schema.type === 'boolean') {
-          params[key] = schema.default || false;
-        }
-      });
-    }
-    
+      }
+      
+      params[key] = example !== undefined ? example : 
+        (schema.type === 'number' || schema.type === 'integer') ? (schema.default || 1000) :
+        schema.type === 'string' ? (schema.default || '') :
+        schema.type === 'boolean' ? (schema.default || false) : undefined;
+    });
     return params;
   };
 
   const getToolParamKey = (serverId: string, toolName: string) => `${serverId}-${toolName}`;
-
-  const getToolParams = (serverId: string, toolName: string, tool: any) => {
-    const key = getToolParamKey(serverId, toolName);
-    return toolParams[key] || getDefaultParamsForTool(tool);
-  };
-
-  const updateToolParams = (serverId: string, toolName: string, params: any) => {
-    const key = getToolParamKey(serverId, toolName);
-    setToolParams(prev => ({
-      ...prev,
-      [key]: params
-    }));
-  };
+  const getToolParams = (serverId: string, toolName: string, tool: any) => 
+    toolParams[getToolParamKey(serverId, toolName)] || getDefaultParamsForTool(tool);
+  
+  const updateToolParams = (serverId: string, toolName: string, params: any) => 
+    setToolParams(prev => ({ ...prev, [getToolParamKey(serverId, toolName)]: params }));
 
   // ============================================================================
   // RENDER
@@ -654,13 +475,7 @@ function App() {
               <select 
                 value={selectedExample}
                 onChange={(e) => handleExampleSelect(e.target.value)}
-                style={{ 
-                  width: '100%', 
-                  padding: '0.5rem', 
-                  border: '1px solid #d1d5db',
-                  borderRadius: '0.375rem',
-                  background: 'white'
-                }}
+                style={{ ...STYLES.input, background: 'white' }}
               >
                 <option value="">Select an example...</option>
                 {SERVER_EXAMPLES.map(example => (
@@ -681,13 +496,7 @@ function App() {
                 value={newServerUrl}
                 onChange={(e) => setNewServerUrl(e.target.value)}
                 placeholder=""
-                style={{ 
-                  width: '100%', 
-                  padding: '0.5rem', 
-                  border: '1px solid #d1d5db',
-                  borderRadius: '0.375rem',
-                  boxSizing: 'border-box'
-                }}
+                style={{ ...STYLES.input, boxSizing: 'border-box' }}
               />
             </div>
 
@@ -695,14 +504,12 @@ function App() {
               onClick={() => addServer(newServerUrl)}
               disabled={!newServerUrl.trim()}
               style={{
+                ...STYLES.button,
                 width: '100%',
                 padding: '0.75rem',
                 background: newServerUrl.trim() ? '#3b82f6' : '#9ca3af',
                 color: 'white',
-                border: 'none',
-                borderRadius: '0.375rem',
-                cursor: newServerUrl.trim() ? 'pointer' : 'not-allowed',
-                fontWeight: 500
+                cursor: newServerUrl.trim() ? 'pointer' : 'not-allowed'
               }}
             >
               Add & Setup Server
@@ -745,26 +552,14 @@ function App() {
             </div>
             
             {servers.length === 0 ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '2rem', 
-                color: '#6b7280',
-                border: '2px dashed #d1d5db',
-                borderRadius: '0.375rem'
-              }}>
+              <div style={STYLES.emptyState}>
                 <p>No servers configured</p>
                 <p style={{ fontSize: '0.875rem' }}>Add a server URL above to get started</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {servers.map(server => (
-                  <div key={server.id} style={{
-                    padding: '1rem',
-                    background: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                  }}>
+                  <div key={server.id} style={STYLES.card}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                       <h3 style={{ margin: 0, fontSize: '1.125rem' }}>{server.name}</h3>
                       <button
@@ -934,13 +729,7 @@ function App() {
         }}>
           <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem' }}>Available Tools</h2>
           {connectedServers.length === 0 ? (
-            <div style={{ 
-              textAlign: 'center', 
-              padding: '2rem', 
-              color: '#6b7280',
-              border: '2px dashed #d1d5db',
-              borderRadius: '0.375rem'
-            }}>
+            <div style={STYLES.emptyState}>
               <p>No servers connected</p>
               <p style={{ fontSize: '0.875rem' }}>Connect to servers to see their tools</p>
             </div>
@@ -1010,49 +799,20 @@ function App() {
                                         type="number"
                                         value={currentParams[paramName] || ''}
                                         onChange={(e) => {
-                                          const newParams = { ...currentParams };
-                                          newParams[paramName] = schema.type === 'integer' 
-                                            ? parseInt(e.target.value) 
-                                            : parseFloat(e.target.value);
-                                          updateToolParams(server.id, tool.name, newParams);
+                                          const value = schema.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value);
+                                          updateToolParams(server.id, tool.name, { ...currentParams, [paramName]: value });
                                         }}
-                                        style={{
-                                          width: '100%',
-                                          padding: '0.5rem',
-                                          border: '1px solid #d1d5db',
-                                          borderRadius: '0.375rem',
-                                          fontSize: '0.875rem'
-                                        }}
-                                        placeholder={(() => {
-                                          const exampleMatch = schema.description?.match(/Example:\s*(.+)/s);
-                                          const example = schema.examples?.[0] || schema.example || (exampleMatch ? exampleMatch[1].trim() : null) || schema.default || 1000;
-                                          return `Example: ${example}`;
-                                        })()}
+                                        style={STYLES.input}
+                                        placeholder={`Example: ${schema.examples?.[0] || schema.example || schema.default || 1000}`}
                                       />
                                     )}
                                     
                                     {schema.type === 'string' && (
                                       <textarea
                                         value={currentParams[paramName] || ''}
-                                        onChange={(e) => {
-                                          const newParams = { ...currentParams };
-                                          newParams[paramName] = e.target.value;
-                                          updateToolParams(server.id, tool.name, newParams);
-                                        }}
-                                        style={{
-                                          width: '100%',
-                                          padding: '0.5rem',
-                                          border: '1px solid #d1d5db',
-                                          borderRadius: '0.375rem',
-                                          fontSize: '0.875rem',
-                                          minHeight: '100px',
-                                          resize: 'vertical',
-                                          fontFamily: 'Monaco, Consolas, monospace'
-                                        }}
-                                        placeholder={(() => {
-                                          const exampleMatch = schema.description?.match(/Example:\s*(.+)/s);
-                                          return schema.examples?.[0] || schema.example || (exampleMatch ? exampleMatch[1].trim() : null) || schema.default || 'Enter text...';
-                                        })()}
+                                        onChange={(e) => updateToolParams(server.id, tool.name, { ...currentParams, [paramName]: e.target.value })}
+                                        style={{ ...STYLES.input, minHeight: '100px', resize: 'vertical', fontFamily: 'Monaco, Consolas, monospace' }}
+                                        placeholder={schema.examples?.[0] || schema.example || schema.default || 'Enter text...'}
                                       />
                                     )}
                                     
@@ -1060,11 +820,7 @@ function App() {
                                       <input
                                         type="checkbox"
                                         checked={currentParams[paramName] || false}
-                                        onChange={(e) => {
-                                          const newParams = { ...currentParams };
-                                          newParams[paramName] = e.target.checked;
-                                          updateToolParams(server.id, tool.name, newParams);
-                                        }}
+                                        onChange={(e) => updateToolParams(server.id, tool.name, { ...currentParams, [paramName]: e.target.checked })}
                                         style={{ marginRight: '0.5rem' }}
                                       />
                                     )}
