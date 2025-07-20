@@ -56,8 +56,8 @@ sequenceDiagram
     participant OuterFrame as Outer Frame
     participant InnerFrame as Inner Frame
     
-    Note over OuterFrame,InnerFrame: Setup Phase (#setup URL)
-    OuterFrame->>InnerFrame: Load iframe with #setup
+    Note over OuterFrame,InnerFrame: Setup Phase
+    OuterFrame->>InnerFrame: Load iframe with "setup" hash on URL
     InnerFrame->>OuterFrame: SetupHandshake (targetOrigin: '*')
     OuterFrame->>InnerFrame: SetupHandshakeReply (sessionId: abc123)
     Note over InnerFrame: Pin outer frame origin<br/>Optional user interaction
