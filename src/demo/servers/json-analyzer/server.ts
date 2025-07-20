@@ -6,9 +6,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { 
-  PostMessageSetupHelper, 
-  PostMessageServerTransport 
+  PostMessageTransport
 } from '$sdk/server/transport.js';
+import { 
+  PostMessageServerWindowControl
+} from '$sdk/server/window-control.js';
 import { 
   getServerPhase, 
   isInWindowContext,
@@ -501,158 +503,88 @@ function getJSONAnalyzerServer(): McpServer {
   return server;
 }
 
-// ============================================================================
-// JSON ANALYZER SERVER MAIN CLASS
-// ============================================================================
+// Configuration
+const CONFIG = {
+  origins: ['*'], // In production, lock down to specific origins
+  title: 'JSON Analyzer',
+  visibility: 'hidden' as const,
+  message: 'JSON file ready for analysis!'
+};
 
-class JSONAnalyzerServer {
-  private server: McpServer | null = null;
-  private ui: JSONAnalyzerUI | null = null;
-  private setupHelper: PostMessageSetupHelper | null = null;
+let transport: PostMessageTransport;
+
+function showPhase(phase: 'setup' | 'transport'): void {
+  document.getElementById('loading')?.classList.add('hidden');
   
-  async start(): Promise<void> {
-    const phase = getServerPhase();
-    
-    if (phase === 'setup') {
-      await this.startSetupPhase();
-    } else {
-      await this.startTransportPhase();
-    }
-  }
-  
-  private async startSetupPhase(): Promise<void> {
-    console.log('[JSON SETUP] Starting setup phase for JSON Analyzer');
-    
-    this.setupHelper = new PostMessageSetupHelper({
-      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
-      // Production servers MUST specify explicit origins:
-      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
-      allowedOrigins: ['*'],
-      requiresVisibleSetup: true
-    });
-    
-    // Wait for handshake
-    await this.setupHelper.waitForHandshake();
-    console.log('[JSON SETUP] Handshake completed');
-    
-    // Set session ID for scoped storage
-    const sessionId = this.setupHelper.sessionId;
-    if (sessionId) {
-      JSONFileService.setSessionId(sessionId);
-      console.log('[JSON SETUP] Session ID set for storage:', sessionId);
-    }
-    
-    // Now show setup UI
-    this.showPhase('setup');
-    
-    // Initialize UI with setup completion callback
-    this.ui = new JSONAnalyzerUI(() => {
-      // Callback when file is loaded - complete setup
-      console.log('[JSON SETUP] User interaction complete, finishing setup');
-      this.setupHelper!.completeSetup({
-        serverTitle: 'JSON Analyzer',
-        transportVisibility: {
-          requirement: 'hidden',
-          optionalMessage: 'JSON analysis works in the background'
-        },
-        ephemeralMessage: 'JSON file ready for analysis!'
-      });
-    });
-    
-    // Check if file was previously loaded and show appropriate UI
-    this.ui.checkExistingFile();
-    console.log('[JSON SETUP] UI initialized, waiting for user interaction...');
-  }
-  
-  private async startTransportPhase(): Promise<void> {
-    // Show transport UI
-    this.showPhase('transport');
-    
-    // Create transport and wait for connection to get session ID
-    const transport = new PostMessageServerTransport({
-      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
-      // Production servers MUST specify explicit origins:
-      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
-      allowedOrigins: ['*']
-    });
-    
-    // Set up transport connection first
-    await transport.start();
-    
-    // Get session ID and set it for scoped storage
-    const sessionId = transport.sessionId;
-    if (sessionId) {
-      JSONFileService.setSessionId(sessionId);
-      console.log('[JSON TRANSPORT] Session ID set for storage:', sessionId);
-    }
-    
-    // Initialize UI for transport display
-    this.ui = new JSONAnalyzerUI();
-    this.ui.updateTransportPhase();
-    
-    // Create MCP server (now that we have session ID for file data)
-    this.server = getJSONAnalyzerServer();
-    
-    await this.server.connect(transport);
-  }
-  
-  private showPhase(phase: 'setup' | 'transport'): void {
-    const loading = document.getElementById('loading');
-    const setupPhase = document.getElementById('setup-phase');
-    const transportPhase = document.getElementById('transport-phase');
-    
-    if (loading) loading.classList.add('hidden');
-    
-    if (phase === 'setup') {
-      setupPhase?.classList.remove('hidden');
-      transportPhase?.classList.add('hidden');
-    } else {
-      setupPhase?.classList.add('hidden');
-      transportPhase?.classList.remove('hidden');
-    }
-  }
-  
-  private showError(message: string): void {
-    const container = document.querySelector('.container');
-    if (container) {
-      container.innerHTML = `
-        <div style="text-align: center; padding: 2rem; color: #e17055;">
-          <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
-          <h2 style="margin: 0 0 1rem 0; color: #e17055;">Error</h2>
-          <p style="margin: 0; color: #636e72;">${message}</p>
-        </div>
-      `;
-    }
+  if (phase === 'setup') {
+    document.getElementById('setup-phase')?.classList.remove('hidden');
+    document.getElementById('transport-phase')?.classList.add('hidden');
+  } else {
+    document.getElementById('setup-phase')?.classList.add('hidden');
+    document.getElementById('transport-phase')?.classList.remove('hidden');
   }
 }
 
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
+async function completeSetup() {
+  await transport.completeSetup({
+    serverTitle: CONFIG.title,
+    transportVisibility: { requirement: CONFIG.visibility },
+    ephemeralMessage: CONFIG.message
+  });
+}
 
-// Prevent multiple instances from running
-if (!(window as any).jsonAnalyzerStarted) {
-  (window as any).jsonAnalyzerStarted = true;
+async function main() {
+  console.log('[JSON-ANALYZER] Starting main function');
   
-  async function main() {
-    try {
-      // Ensure we're in a window context (iframe/popup)
-      if (!isInWindowContext()) {
-        throw new Error('This server must run in an iframe or popup window');
-      }
-      
-      const server = new JSONAnalyzerServer();
-      await server.start();
-      
-    } catch (error) {
-      console.error('Failed to start JSON Analyzer server:', error);
-      
-      const server = new JSONAnalyzerServer();
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      (server as any).showError(errorMessage);
-    }
+  if (!isInWindowContext()) throw new Error('JSON Analyzer needs a window');
+  
+  console.log('[JSON-ANALYZER] Creating transport with requiresVisibleSetup: true');
+  transport = new PostMessageTransport(
+    new PostMessageServerWindowControl(CONFIG.origins),
+    { requiresVisibleSetup: true }
+  );
+  
+  const phase = getServerPhase();
+  console.log('[JSON-ANALYZER] Server phase detected:', phase);
+  
+  if (phase === 'setup') {
+    console.log('[JSON-ANALYZER] Starting setup phase');
+    console.log('[JSON-ANALYZER] Calling transport.prepareSetup()');
+    await transport.prepareSetup();
+    console.log('[JSON-ANALYZER] prepareSetup completed, sessionId:', transport.sessionId);
+    
+    JSONFileService.setSessionId(transport.sessionId);
+    
+    console.log('[JSON-ANALYZER] Showing setup phase UI');
+    showPhase('setup');
+    
+    // Initialize UI with setup completion callback
+    console.log('[JSON-ANALYZER] Initializing UI with completion callback');
+    const ui = new JSONAnalyzerUI(completeSetup);
+    ui.checkExistingFile();
+    console.log('[JSON-ANALYZER] Setup phase initialization complete');
+  } else {
+    await transport.prepareToConnect();
+    JSONFileService.setSessionId(transport.sessionId);
+    
+    showPhase('transport');
+    
+    const ui = new JSONAnalyzerUI();
+    ui.updateTransportPhase();
+    
+    const server = getJSONAnalyzerServer();
+    await server.connect(transport);
   }
+}
 
-  // Start the server
-  main();
+// Prevent multiple instances
+if (!(window as any).jsonAnalyzerStarted) {
+  console.log('[JSON-ANALYZER] Starting JSON analyzer server');
+  (window as any).jsonAnalyzerStarted = true;
+  main().catch((error) => {
+    console.error('[JSON-ANALYZER] Fatal error in main():', error);
+    throw error;
+  });
+} else {
+  console.log('[JSON-ANALYZER] JSON analyzer already started, skipping');
 }

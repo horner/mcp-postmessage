@@ -1,239 +1,169 @@
 /**
- * PostMessage Transport for MCP Servers
- * @module @modelcontextprotocol/sdk/server/transport
+ * Unified PostMessage Transport for MCP Servers
+ * 
+ * Handles both setup and transport phases with a clean API:
+ * - Setup: prepareSetup() → user interaction → completeSetup()
+ * - Transport: prepareToConnect() → server creation → connect()
  */
 
-import { Transport, JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import {
-  PostMessageServerConfig,
-  PostMessageServerTransportOptions,
-  SetupHandlerOptions
-} from '$sdk/types/postmessage.js';
-import {
-  SetupHandshakeMessage,
-  SetupHandshakeReplyMessage,
-  SetupCompleteMessage,
-  TransportHandshakeMessage,
-  TransportHandshakeReplyMessage,
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { 
+  SetupCompleteMessage, 
   TransportAcceptedMessage,
   MCPMessage,
-  isSetupMessage,
-  isTransportMessage,
-  isMCPMessage
+  isMCPMessage 
 } from '$protocol/types.js';
-import {
-  getMessageTarget,
-  getServerPhase,
-  isOriginAllowed,
-  withTimeout
-} from '$sdk/utils/helpers.js';
+import { ServerWindowControl } from './window-control.js';
+import { handshakeSetupPhase, handshakeTransportPhase, SetupHandshakeResult, TransportHandshakeResult } from './handshake.js';
 
-// ============================================================================
-// SETUP HELPER
-// ============================================================================
-
-/**
- * Helper for PostMessage server setup
- */
-export class PostMessageSetupHelper {
-  private allowedOrigins: string[];
-  private requiresVisibleSetup: boolean;
-  private messageTarget: Window;
-  private clientOrigin: string | null = null;
-  private sessionId: string | null = null;
-  private handshakeComplete = false;
-  private messageHandler?: (event: MessageEvent) => void;
-  private handshakeResolver?: () => void;
-
-  constructor(options: { 
-    allowedOrigins: string[]; 
-    requiresVisibleSetup: boolean;
-  }) {
-    this.allowedOrigins = options.allowedOrigins;
-    this.requiresVisibleSetup = options.requiresVisibleSetup;
-    this.messageTarget = getMessageTarget();
-  }
-
-  /**
-   * Wait for handshake to complete
-   */
-  async waitForHandshake(): Promise<void> {
-    if (this.handshakeComplete) {
-      return;
-    }
-
-    // Set up message handler
-    this.messageHandler = (event: MessageEvent) => {
-      this.handleMessage(event);
-    };
-    window.addEventListener('message', this.messageHandler);
-
-    // Announce ready
-    this.announceReady();
-
-    // Wait for handshake
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.handshakeResolver = undefined;
-        reject(new Error('Handshake timeout'));
-      }, 30000);
-      
-      // Store the resolver to be called when handshake message arrives
-      this.handshakeResolver = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-    });
-  }
-
-  /**
-   * Get the session ID from handshake
-   */
-  get sessionId(): string | null {
-    return this.sessionId;
-  }
-
-  /**
-   * Complete setup with results
-   */
-  async completeSetup(result: {
-    serverTitle: string;
-    transportVisibility: {
-      requirement: 'required' | 'optional' | 'hidden';
-      optionalMessage?: string;
-    };
-    ephemeralMessage?: string;
-  }): Promise<void> {
-    if (!this.handshakeComplete || !this.clientOrigin) {
-      throw new Error('Cannot complete setup before handshake');
-    }
-    
-    const message: SetupCompleteMessage = {
-      type: 'MCP_SETUP_COMPLETE',
-      status: 'success',
-      serverTitle: result.serverTitle,
-      transportVisibility: result.transportVisibility,
-      ephemeralMessage: result.ephemeralMessage
-    };
-    
-    this.messageTarget.postMessage(message, this.clientOrigin);
-    this.cleanup();
-  }
-
-  private announceReady(): void {
-    const message: SetupHandshakeMessage = {
-      type: 'MCP_SETUP_HANDSHAKE',
-      protocolVersion: '1.0',
-      requiresVisibleSetup: this.requiresVisibleSetup
-    };
-    this.messageTarget.postMessage(message, '*');
-  }
-
-  private handleMessage(event: MessageEvent): void {
-    if (!isSetupMessage(event.data)) {
-      return;
-    }
-
-    const message = event.data;
-
-    if (message.type === 'MCP_SETUP_HANDSHAKE_REPLY' && !this.handshakeComplete) {
-      const reply = message as SetupHandshakeReplyMessage;
-      
-      if (!isOriginAllowed(event.origin, this.allowedOrigins)) {
-        console.warn(`Rejected setup from unauthorized origin: ${event.origin}`);
-        return;
-      }
-
-      if (reply.protocolVersion !== '1.0') {
-        console.warn(`Incompatible protocol version: ${reply.protocolVersion}`);
-        return;
-      }
-
-      this.clientOrigin = event.origin;
-      this.sessionId = reply.sessionId;
-      this.handshakeComplete = true;
-      
-      // Resolve the handshake promise immediately
-      if (this.handshakeResolver) {
-        this.handshakeResolver();
-        this.handshakeResolver = undefined;
-      }
-    }
-  }
-
-  private cleanup(): void {
-    if (this.messageHandler) {
-      window.removeEventListener('message', this.messageHandler);
-      this.messageHandler = undefined;
-    }
-  }
+export interface SetupConfig {
+  requiresVisibleSetup: boolean;
 }
 
-// ============================================================================
-// SERVER TRANSPORT
-// ============================================================================
+export interface SetupResult {
+  serverTitle: string;
+  transportVisibility: {
+    requirement: 'required' | 'optional' | 'hidden';
+    optionalMessage?: string;
+  };
+  ephemeralMessage?: string;
+}
 
-/**
- * PostMessage transport for MCP servers
- */
-export class PostMessageServerTransport implements Transport {
-  private config: PostMessageServerConfig;
-  private messageTarget: Window;
-  private clientOrigin: string | null = null;
-  private sessionId: string | null = null;
-  private protocolVersion?: string;
-  private isConnected = false;
-  private messageHandler?: (event: MessageEvent) => void;
-  private connectionResolver?: () => void;
+export class PostMessageTransport implements Transport {
+  private unsubscribe?: () => void;
+  private closed = false;
+  private setupHandshakeResult?: SetupHandshakeResult;
+  private transportHandshakeResult?: TransportHandshakeResult;
+  private phase: 'setup' | 'transport' | 'idle' = 'idle';
 
   // Transport callbacks
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  constructor(options: PostMessageServerTransportOptions) {
-    this.config = {
-      allowedOrigins: options.allowedOrigins,
-      serverInfo: options.serverInfo
-    };
-    this.messageTarget = options.messageTarget || getMessageTarget();
+  constructor(
+    private control: ServerWindowControl,
+    private setupConfig?: SetupConfig
+  ) {}
+  
+  get sessionId(): string {
+    return this.setupHandshakeResult?.sessionId || this.transportHandshakeResult?.sessionId || '';
   }
 
   /**
-   * Start the transport
+   * Prepare for setup phase - performs setup handshake
    */
-  async start(): Promise<void> {
-    if (this.messageHandler) {
-      throw new Error('Transport already started');
+  async prepareSetup(): Promise<void> {
+    console.log('[SERVER TRANSPORT V2 SETUP] prepareSetup() called');
+    console.log('[SERVER TRANSPORT V2 SETUP] Current phase:', this.phase);
+    console.log('[SERVER TRANSPORT V2 SETUP] requiresVisibleSetup:', this.setupConfig?.requiresVisibleSetup || false);
+    
+    if (this.phase !== 'idle') {
+      throw new Error('Transport already in use');
     }
-
-    // Set up message handler
-    this.messageHandler = (event: MessageEvent) => {
-      this.handleMessage(event);
-    };
-    window.addEventListener('message', this.messageHandler);
-
+    
+    console.log('[SERVER TRANSPORT V2 SETUP] Starting setup handshake');
     try {
-      // Announce ready
-      this.announceReady();
-
-      // Wait for handshake
-      await this.waitForConnection();
+      this.setupHandshakeResult = await handshakeSetupPhase(this.control, {
+        requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false
+      });
+      console.log('[SERVER TRANSPORT V2 SETUP] Setup handshake completed:', this.setupHandshakeResult);
+      this.phase = 'setup';
+      console.log('[SERVER TRANSPORT V2 SETUP] Phase updated to setup');
     } catch (error) {
-      this.cleanup();
+      console.error('[SERVER TRANSPORT V2 SETUP] Setup handshake failed:', error);
       throw error;
     }
   }
 
   /**
-   * Send a message to the client
+   * Complete setup phase - sends setup completion message
    */
-  async send(message: JSONRPCMessage): Promise<void> {
-    console.log(`[SERVER TRANSPORT] Sending message to client:`, message);
+  async completeSetup(result: SetupResult): Promise<void> {
+    console.log('[SERVER TRANSPORT V2 SETUP] completeSetup() called');
+    console.log('[SERVER TRANSPORT V2 SETUP] Current phase:', this.phase);
+    console.log('[SERVER TRANSPORT V2 SETUP] Setup result:', result);
     
-    if (!this.isConnected || !this.clientOrigin) {
-      console.log(`[SERVER TRANSPORT] Cannot send - not connected or no client origin`);
-      throw new Error('Not connected to client');
+    if (this.phase !== 'setup') {
+      throw new Error('Must call prepareSetup() first');
+    }
+
+    if (this.closed) {
+      throw new Error('Transport already closed');
+    }
+
+    console.log('[SERVER TRANSPORT V2 SETUP] Setting up message relay');
+    // Set up message relay for any potential MCP messages during setup
+    this.unsubscribe = this.control.onMessage((data) => {
+      if (isMCPMessage(data)) {
+        const mcpMessage = data as MCPMessage;
+        this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
+      }
+    });
+
+    // Send setup completion
+    const completeMsg: SetupCompleteMessage = {
+      type: 'MCP_SETUP_COMPLETE',
+      status: 'success',
+      serverTitle: result.serverTitle,
+      transportVisibility: result.transportVisibility,
+      ephemeralMessage: result.ephemeralMessage
+    };
+
+    console.log('[SERVER TRANSPORT V2 SETUP] Sending setup completion message:', completeMsg);
+    this.control.postMessage(completeMsg);
+    console.log('[SERVER TRANSPORT V2 SETUP] Setup completion message sent');
+  }
+
+  /**
+   * Prepare for transport phase - performs transport handshake
+   */
+  async prepareToConnect(): Promise<void> {
+    if (this.phase !== 'idle') {
+      throw new Error('Transport already in use');
+    }
+    
+    this.transportHandshakeResult = await handshakeTransportPhase(this.control);
+    this.phase = 'transport';
+  }
+
+  /**
+   * Start transport phase - sends transport accepted and sets up message relay
+   */
+  async start(): Promise<void> {
+    if (this.phase !== 'transport') {
+      throw new Error('Must call prepareToConnect() first');
+    }
+
+    if (this.closed) {
+      throw new Error('Transport already closed');
+    }
+
+    if (this.unsubscribe) {
+      throw new Error('Transport already started');
+    }
+
+    // Set up message relay
+    this.unsubscribe = this.control.onMessage((data) => {
+      if (isMCPMessage(data)) {
+        const mcpMessage = data as MCPMessage;
+        this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
+      }
+    });
+
+    // Send transport accepted
+    const acceptedMsg: TransportAcceptedMessage = {
+      type: 'MCP_TRANSPORT_ACCEPTED',
+      sessionId: this.transportHandshakeResult!.sessionId
+    };
+
+    this.control.postMessage(acceptedMsg);
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    if (this.closed) {
+      throw new Error('Transport closed');
     }
 
     try {
@@ -242,134 +172,22 @@ export class PostMessageServerTransport implements Transport {
         payload: message as any
       };
       
-      console.log(`[SERVER TRANSPORT] Posting MCP message to ${this.clientOrigin}:`, mcpMessage);
-      this.messageTarget.postMessage(mcpMessage, this.clientOrigin);
+      this.control.postMessage(mcpMessage);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      console.log(`[SERVER TRANSPORT] Send error:`, err);
       this.onerror?.(err);
       throw err;
     }
   }
 
-  /**
-   * Close the transport
-   */
   async close(): Promise<void> {
-    this.isConnected = false;
-    this.clientOrigin = null;
-    this.sessionId = null;
-    this.cleanup();
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    this.unsubscribe?.();
+    this.control.destroy();
     this.onclose?.();
   }
-
-  /**
-   * Get session ID
-   */
-  get sessionId(): string | null {
-    return this.sessionId;
-  }
-
-  /**
-   * Get protocol version
-   */
-  get protocolVersion(): string | undefined {
-    return this.protocolVersion;
-  }
-
-  /**
-   * Check if connected
-   */
-  get connected(): boolean {
-    return this.isConnected;
-  }
-
-  private announceReady(): void {
-    const message: TransportHandshakeMessage = {
-      type: 'MCP_TRANSPORT_HANDSHAKE',
-      protocolVersion: '1.0'
-    };
-    this.messageTarget.postMessage(message, '*');
-  }
-
-  private handleMessage(event: MessageEvent): void {
-    const data = event.data;
-    console.log(`[SERVER TRANSPORT] Received message:`, data);
-
-    // Handle transport handshake reply
-    if (data.type === 'MCP_TRANSPORT_HANDSHAKE_REPLY' && !this.isConnected) {
-      const reply = data as TransportHandshakeReplyMessage;
-      
-      // Validate origin
-      if (!isOriginAllowed(event.origin, this.config.allowedOrigins)) {
-        console.warn(`Rejected transport from unauthorized origin: ${event.origin}`);
-        
-        this.onerror?.(new Error(`Unauthorized origin: ${event.origin}`));
-        return;
-      }
-
-      // Check protocol version
-      if (reply.protocolVersion !== '1.0') {
-        console.warn(`Incompatible protocol version: ${reply.protocolVersion}`);
-        this.onerror?.(new Error(`Incompatible protocol version: ${reply.protocolVersion}`));
-        return;
-      }
-
-      // Accept handshake
-      this.clientOrigin = event.origin;
-      this.sessionId = reply.sessionId;
-      this.protocolVersion = reply.protocolVersion;
-      this.isConnected = true;
-
-      // Send transport accepted
-      const response: TransportAcceptedMessage = {
-        type: 'MCP_TRANSPORT_ACCEPTED',
-        sessionId: this.sessionId
-      };
-      this.messageTarget.postMessage(response, this.clientOrigin);
-      
-      // Resolve the connection promise immediately
-      if (this.connectionResolver) {
-        this.connectionResolver();
-        this.connectionResolver = undefined;
-      }
-      return;
-    }
-
-    // Handle MCP messages
-    if (this.isConnected && event.origin === this.clientOrigin && isMCPMessage(event.data)) {
-      const mcpMessage = event.data as MCPMessage;
-      console.log(`[SERVER TRANSPORT] Processing MCP message payload:`, mcpMessage.payload);
-      this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
-    } else {
-      console.log(`[SERVER TRANSPORT] Not processing message - connected: ${this.isConnected}, origin match: ${event.origin === this.clientOrigin}, isMCPMessage: ${isMCPMessage(event.data)}`);
-    }
-  }
-
-  private async waitForConnection(): Promise<void> {
-    if (this.isConnected) {
-      return;
-    }
-    
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.connectionResolver = undefined;
-        reject(new Error('Connection timeout'));
-      }, 30000);
-      
-      // Store the resolver to be called when connection message arrives
-      this.connectionResolver = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-    });
-  }
-
-  private cleanup(): void {
-    if (this.messageHandler) {
-      window.removeEventListener('message', this.messageHandler);
-      this.messageHandler = undefined;
-    }
-  }
 }
-

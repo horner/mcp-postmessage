@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PostMessageTransport, PostMessageSetupManager } from '$sdk/client/transport.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { PostMessageTransport } from '$sdk/client/transport.js';
 import { IframeWindowControl } from '$sdk/client/window-control.js';
-import { parseServerUrl, generateUUID } from '$sdk/utils/helpers.js';
-import { SetupResult } from '$sdk/types/postmessage.js';
+import { parseServerUrl, generateUUID, generateSessionId } from '$sdk/utils/helpers.js';
+import { SetupResult } from '$sdk/client/transport.js';
 import { 
   SetupCompleteMessage,
   TransportMessage
@@ -21,6 +22,7 @@ interface Server {
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
   sessionId?: string;
   transport?: PostMessageTransport;
+  client?: Client;
   ephemeralMessage?: string;
   transportVisibility?: {
     requirement: 'required' | 'optional' | 'hidden';
@@ -90,6 +92,19 @@ function App() {
       setServers(savedServers);
       showToast('info', `Loaded ${savedServers.length} saved server(s)`);
     }
+
+    // Add global postMessage debugging
+    const debugHandler = (event: MessageEvent) => {
+      console.log('[APP-DEBUG] Received postMessage:', {
+        origin: event.origin,
+        sourceType: event.source === window ? 'MAIN_WINDOW' : 'IFRAME_OR_OTHER',
+        data: event.data,
+        timestamp: new Date().toISOString()
+      });
+    };
+    
+    window.addEventListener('message', debugHandler);
+    return () => window.removeEventListener('message', debugHandler);
   }, []);
   
   // Save servers to localStorage whenever servers change
@@ -251,6 +266,7 @@ function App() {
   const runSetup = async (server: Server) => {
     console.log(`[SETUP] Starting setup for ${server.name}`);
     
+    // Update existing server to connecting status
     updateServer(server.id, { connectionStatus: 'connecting' });
     setSetupServerUrl(server.url);
     
@@ -265,8 +281,10 @@ function App() {
       const windowControl = new IframeWindowControl({
         iframe: setupIframeRef.current,
         setVisible: (visible) => {
+          console.log('[SETUP-APP] setVisible called with:', visible);
           if (visible) {
             // Server requires visible setup - show modal
+            console.log('[SETUP-APP] Showing setup modal');
             setSetupModalVisible(true);
           }
         },
@@ -282,46 +300,51 @@ function App() {
         }
       });
 
-      const setupManager = new PostMessageSetupManager({
-        windowControl,
-        sessionId: server.id,  // Use server.id as sessionId for consistency
-        setupTimeout: 300000 // 5 minutes
-      });
+      console.log('[SETUP-APP] Creating transport with sessionId:', server.id, 'serverUrl:', server.url);
+      console.log('[SETUP-APP] WindowControl object:', windowControl);
+      
+      let transport;
+      try {
+        transport = new PostMessageTransport(windowControl, {
+          serverUrl: server.url,
+          sessionId: server.id
+        });
+        console.log('[SETUP-APP] Transport created successfully:', transport);
+      } catch (error) {
+        console.error('[SETUP-APP] Error creating transport:', error);
+        throw error;
+      }
 
-      const result = await setupManager.performSetup(server.url);
+      console.log('[SETUP-APP] Starting transport setup');
+      let result;
+      try {
+        result = await transport.setup();
+        console.log('[SETUP-APP] Transport setup completed:', result);
+      } catch (error) {
+        console.error('[SETUP-APP] Error during transport setup:', error);
+        throw error;
+      }
       
       if (result.success) {
+        // Update the existing server
         updateServer(server.id, {
-          setupComplete: true,
           name: result.serverTitle || server.name,
-          transportVisibility: result.transportVisibility,
-          ephemeralMessage: result.ephemeralMessage
+          setupComplete: true,
+          connectionStatus: 'disconnected' as const,
+          transportVisibility: result.transportVisibility
         });
         
         showToast('success', result.ephemeralMessage || 'Setup completed successfully');
-        
-        // Show ephemeral message briefly
-        if (result.ephemeralMessage) {
-          setTimeout(() => {
-            updateServer(server.id, { ephemeralMessage: undefined });
-          }, 10000);
-        }
-        
-        // Reset connection status to disconnected after successful setup
-        updateServer(server.id, { connectionStatus: 'disconnected' });
       } else {
-        updateServer(server.id, {
-          lastError: result.error?.message || 'Setup failed'
-        });
-        
+        // Setup failed - remove the server
+        setServers(prev => prev.filter(s => s.id !== server.id));
         showToast('error', result.error?.message || 'Setup failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Setup failed';
-      updateServer(server.id, { 
-        lastError: errorMessage,
-        connectionStatus: 'error'
-      });
+      console.error('Setup failed:', error);
+      // Setup failed - remove the server
+      setServers(prev => prev.filter(s => s.id !== server.id));
       showToast('error', errorMessage);
     } finally {
       setSetupModalVisible(false);
@@ -374,26 +397,10 @@ function App() {
       });
 
       console.log(`[TRANSPORT] Creating PostMessageTransport`);
-      const transport = new PostMessageTransport({
+      const transport = new PostMessageTransport(windowControl, {
         serverUrl: server.url,
-        windowControl,
-        sessionId: server.id  // Use server.id as sessionId for persistence
+        sessionId: server.id
       });
-
-      transport.onmessage = (message) => {
-        console.log(`[TRANSPORT] Received MCP message:`, message);
-        
-        // Handle tools/list response to update server tools
-        if (message.method === 'tools/list' || 
-            (message.id && message.result && message.result.tools)) {
-          updateServer(server.id, {
-            tools: message.result?.tools || []
-          });
-        }
-        
-        // Tool call responses are now handled directly in the callTool function
-        // via Promise-based response handlers, so no need to process them here
-      };
 
       transport.onerror = (error) => {
         console.error(`[TRANSPORT] Transport error:`, error);
@@ -404,16 +411,36 @@ function App() {
         });
       };
 
-      console.log(`[TRANSPORT] Starting transport...`);
-      await transport.start();
-      console.log(`[TRANSPORT] Transport started successfully`);
+      // Navigate to transport URL and wait for load
+      await windowControl.navigate(server.url);
+
+      console.log(`[TRANSPORT] Preparing to connect...`);
+      await transport.prepareToConnect();
       
-      // Request tools list after connection
+      // Create SDK Client and connect
+      console.log(`[TRANSPORT] Creating MCP Client...`);
+      const client = new Client({
+        name: 'mcp-postmessage-demo-client',
+        version: '1.0.0'
+      });
+
+      console.log(`[TRANSPORT] Connecting client to transport...`);
+      await client.connect(transport);
+      console.log(`[TRANSPORT] Client connected successfully`);
+      
+      // Get tools list using SDK
       try {
-        await transport.send({
-          jsonrpc: '2.0',
-          id: generateUUID(),
-          method: 'tools/list'
+        const toolsResult = await client.listTools();
+        const tools = toolsResult.tools || [];
+        console.log(`[TRANSPORT] Retrieved ${tools.length} tools:`, tools);
+        
+        updateServer(server.id, {
+          tools: tools.map(tool => ({
+            name: tool.name,
+            title: tool.title,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          }))
         });
       } catch (error) {
         console.warn('Failed to request tools list:', error);
@@ -422,7 +449,8 @@ function App() {
       updateServer(server.id, {
         connectionStatus: 'connected',
         sessionId: transport.sessionId,
-        transport: transport
+        transport: transport,
+        client: client
       });
       
       // Configure iframe visibility based on server requirements
@@ -462,6 +490,7 @@ function App() {
         connectionStatus: 'disconnected',
         sessionId: undefined,
         transport: undefined,
+        client: undefined,
         tools: undefined
       });
       
@@ -484,60 +513,22 @@ function App() {
     console.log(`[TOOL-CALL] Starting tool call for ${toolName} on server ${serverId}`);
     
     const server = servers.find(s => s.id === serverId);
-    if (!server?.transport) {
+    if (!server?.client) {
       showToast('error', 'No active connection to this server');
       return;
     }
 
     try {
-      const messageId = generateUUID();
-      const message = {
-        jsonrpc: '2.0' as const,
-        id: messageId,
-        method: 'tools/call',
-        params: {
-          name: toolName,
-          arguments: params
-        }
-      };
-
       console.log(`[TOOL-CALL] Calling ${toolName} with params:`, params);
       
-      // Create a promise that will resolve when we get the response
-      const responsePromise = new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Tool call timeout'));
-        }, 30000); // 30 second timeout
-        
-        const originalOnMessage = server.transport!.onmessage;
-        
-        const responseHandler = (msg: any) => {
-          // Call original handler first
-          if (originalOnMessage) {
-            originalOnMessage(msg);
-          }
-          
-          // Check if this is our response
-          if (msg.id === messageId && msg.jsonrpc === '2.0') {
-            clearTimeout(timeout);
-            server.transport!.onmessage = originalOnMessage; // Restore original handler
-            
-            if (msg.error) {
-              reject(new Error(msg.error.message || 'Tool call failed'));
-            } else {
-              resolve(msg.result);
-            }
-          }
-        };
-        
-        server.transport!.onmessage = responseHandler;
+      // Use SDK Client for tool call
+      const result = await server.client.callTool({
+        name: toolName,
+        arguments: params
       });
-
-      await server.transport.send(message);
-      const result = await responsePromise;
       
       // Display result
-      const resultText = result?.content?.[0]?.text || JSON.stringify(result, null, 2);
+      const resultText = (result.content && Array.isArray(result.content) && result.content[0]?.text) || JSON.stringify(result, null, 2);
       showToast('success', `${toolName} completed`);
       
       // Update a simple last result display
@@ -860,7 +851,6 @@ function App() {
                             <button
                               onClick={() => {
                                 const isCurrentlyVisible = iframeVisibility[server.id] !== false;
-                                // Just toggle the visibility state - don't modify iframe
                                 setIframeVisibility(prev => ({ ...prev, [server.id]: !isCurrentlyVisible }));
                               }}
                               style={{
@@ -1150,55 +1140,65 @@ function App() {
           gridArea: 'content',
           display: 'flex', 
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          position: 'relative'
         }}>
-          {visibleServerCount === 0 ? (
+          {/* Empty state overlay when no servers visible */}
+          {visibleServerCount === 0 && (
             <div style={{
-              flex: 1,
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#6b7280',
-              background: '#f3f4f6'
+              background: '#f3f4f6',
+              zIndex: 10
             }}>
               <div style={{ textAlign: 'center' }}>
                 <h2 style={{ margin: '0 0 1rem 0' }}>No Server Interfaces</h2>
                 <p>Setup servers with visible interfaces to see them here</p>
               </div>
             </div>
-          ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              {serversWithIframes.map((server, index) => {
-                const isVisible = server.transportVisibility?.requirement === 'required' || 
-                                (server.transportVisibility?.requirement === 'optional' && iframeVisibility[server.id] !== false);
-                
-                return (
-                  <div 
-                    key={server.id}
-                    style={{ 
-                      display: isVisible ? 'flex' : 'none',
-                      flex: 1,
-                      borderBottom: isVisible ? '1px solid #e5e7eb' : 'none',
-                      position: 'relative'
-                    }}
-                  >
-                    <div 
-                      data-server-id={server.id}
-                      ref={el => {
-                        if (el) {
-                          const iframe = getOrCreateTransportIframe(server.id);
-                          if (!el.contains(iframe)) {
-                            el.appendChild(iframe);
-                          }
-                        }
-                      }} 
-                      style={{ height: '100%', width: '100%' }} 
-                    />
-                  </div>
-                );
-              })}
-            </div>
           )}
+          
+          {/* Always render iframe containers - never remove them */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            {serversWithIframes.map((server, index) => {
+              const isVisible = server.transportVisibility?.requirement === 'required' || 
+                              (server.transportVisibility?.requirement === 'optional' && iframeVisibility[server.id] !== false);
+              
+              return (
+                <div 
+                  key={server.id}
+                  style={{ 
+                    flex: isVisible ? 1 : 0,
+                    borderBottom: isVisible ? '1px solid #e5e7eb' : 'none',
+                    position: 'relative',
+                    minHeight: isVisible ? 'auto' : '0',
+                    opacity: isVisible ? 1 : 0,
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div 
+                    data-server-id={server.id}
+                    ref={el => {
+                      if (el) {
+                        const iframe = getOrCreateTransportIframe(server.id);
+                        if (!iframe.parentNode) {
+                          el.appendChild(iframe);
+                        }
+                      }
+                    }} 
+                    style={{ height: '100%', width: '100%' }} 
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
 
       {/* Setup Modal */}

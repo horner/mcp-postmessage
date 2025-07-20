@@ -5,6 +5,8 @@
 
 import { WindowControl } from '$sdk/types/postmessage.js';
 
+export { WindowControl };
+
 // ============================================================================
 // IFRAME WINDOW CONTROL
 // ============================================================================
@@ -63,6 +65,7 @@ export class IframeWindowControl implements WindowControl {
   }
 
   async navigate(url: string): Promise<void> {
+    console.log('[IFRAME-CONTROL] Starting navigation to:', url);
     this.onNavigateFn?.(url);
     
     // Clean up existing handlers
@@ -75,6 +78,7 @@ export class IframeWindowControl implements WindowControl {
       }, 30000);
 
       this.currentLoadHandler = () => {
+        console.log('[IFRAME-CONTROL] Load event fired for:', url);
         clearTimeout(timeout);
         this.cleanupLoadHandlers();
         this.onLoadFn?.();
@@ -82,6 +86,7 @@ export class IframeWindowControl implements WindowControl {
       };
 
       this.currentErrorHandler = () => {
+        console.log('[IFRAME-CONTROL] Error event fired for:', url);
         clearTimeout(timeout);
         this.cleanupLoadHandlers();
         const error = new Error('Failed to load iframe');
@@ -93,6 +98,7 @@ export class IframeWindowControl implements WindowControl {
       this.iframe.addEventListener('error', this.currentErrorHandler);
       
       // Navigate
+      console.log('[IFRAME-CONTROL] Setting iframe src to:', url);
       this.iframe.src = url;
     });
   }
@@ -110,6 +116,14 @@ export class IframeWindowControl implements WindowControl {
     if (this.messageHandlers.size === 0) {
       this.globalMessageHandler = (event: MessageEvent) => {
         // Only forward messages from our iframe
+        console.log('[IFRAME-CONTROL] Message received:', {
+          eventSource: event.source,
+          iframeContentWindow: this.iframe.contentWindow,
+          sourcesMatch: event.source === this.iframe.contentWindow,
+          origin: event.origin,
+          type: event.data?.type
+        });
+        
         if (event.source === this.iframe.contentWindow) {
           this.messageHandlers.forEach(h => {
             try {
@@ -118,6 +132,8 @@ export class IframeWindowControl implements WindowControl {
               console.error('Error in message handler:', error);
             }
           });
+        } else {
+          console.log('[IFRAME-CONTROL] Message dropped - source mismatch');
         }
       };
       window.addEventListener('message', this.globalMessageHandler);

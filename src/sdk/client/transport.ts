@@ -1,96 +1,229 @@
 /**
- * PostMessage Transport for MCP Clients
- * @module @modelcontextprotocol/sdk/client/transport
+ * Unified PostMessage Transport for MCP Clients
+ * 
+ * Single transport class that handles both setup and transport phases
+ * using WindowControl abstraction and handshake helpers.
  */
 
-import { Transport, JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import {
-  WindowControl,
-  PostMessageTransportOptions
-} from '$sdk/types/postmessage.js';
-import {
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { Transport, TransportSendOptions } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { 
+  SetupCompleteMessage,
+  MCPMessage,
+  isMCPMessage 
+} from '$protocol/types.js';
+import { WindowControl } from './window-control.js';
+import { 
+  SetupHandshakeMessage,
+  SetupHandshakeReplyMessage,
   TransportHandshakeMessage,
   TransportHandshakeReplyMessage,
   TransportAcceptedMessage,
-  MCPMessage,
-  isTransportMessage,
-  isMCPMessage
+  isSetupMessage,
+  isTransportMessage
 } from '$protocol/types.js';
-import { 
-  generateSessionId, 
-  getTransportUrl, 
-  withTimeout 
-} from '$sdk/utils/helpers.js';
+import { withTimeout } from '$sdk/utils/helpers.js';
+
+export interface SetupResult {
+  success: boolean;
+  serverTitle?: string;
+  transportVisibility?: {
+    requirement: 'required' | 'optional' | 'hidden';
+    optionalMessage?: string;
+  };
+  ephemeralMessage?: string;
+  error?: Error;
+}
+
+export interface TransportOptions {
+  serverUrl: string;
+  sessionId: string;
+}
 
 /**
- * PostMessage transport implementation for MCP clients
+ * Unified transport that handles both setup and transport phases
  */
 export class PostMessageTransport implements Transport {
-  private serverUrl: URL;
-  private windowControl: WindowControl;
-  private sessionId: string;
-  private protocolVersion: string;
-  
-  private isConnected = false;
-  private messageQueue: JSONRPCMessage[] = [];
-  private cleanupHandler?: () => void;
-  private handshakePromise?: Promise<void>;
+  private unsubscribe?: () => void;
+  private closed = false;
+  private setupComplete = false;
+  private transportReady = false;
 
   // Transport callbacks
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  constructor(options: PostMessageTransportOptions) {
-    this.serverUrl = new URL(options.serverUrl);
-    this.windowControl = options.windowControl;
-    this.sessionId = options.sessionId || generateSessionId();
-    this.protocolVersion = options.protocolVersion || '2024-11-05';
+  constructor(
+    private windowControl: WindowControl,
+    private options: TransportOptions
+  ) {}
+
+  // Transport interface property  
+  get sessionId(): string {
+    return this.options.sessionId;
   }
 
+  // ============================================================================
+  // SETUP PHASE
+  // ============================================================================
+
   /**
-   * Start the transport connection
+   * Perform complete setup flow with server
    */
-  async start(): Promise<void> {
-    if (this.cleanupHandler) {
-      throw new Error('Transport already started');
+  async setup(): Promise<SetupResult> {
+    console.log('[CLIENT TRANSPORT V2 SETUP] Starting setup with sessionId:', this.options.sessionId);
+    
+    if (this.closed) {
+      throw new Error('Transport already closed');
     }
 
-    // Set up message handler
-    this.cleanupHandler = this.windowControl.onMessage((event) => {
-      this.handleMessage(event);
-    });
+    if (this.setupComplete) {
+      throw new Error('Setup already completed');
+    }
 
+    // Navigate to setup URL first
+    const setupUrl = new URL(this.options.serverUrl);
+    setupUrl.hash = 'setup';
+    console.log('[CLIENT TRANSPORT V2 SETUP] Setup URL:', setupUrl.href);
+    
+    // Navigate to setup URL (server will send handshake message after load)
+    console.log('[CLIENT TRANSPORT V2 SETUP] Navigating to setup URL');
+    await this.windowControl.navigate(setupUrl.href);
+    console.log('[CLIENT TRANSPORT V2 SETUP] Navigation completed');
+    
+    // Perform setup handshake
+    console.log('[CLIENT TRANSPORT V2 SETUP] Starting setup handshake');
+    const requiresVisibleSetup = await this.performSetupHandshake();
+    
+    // Show modal if server requires visible setup
+    if (requiresVisibleSetup) {
+      console.log('[CLIENT TRANSPORT V2 SETUP] Server requires visible setup, showing modal');
+      this.windowControl.setVisible(true);
+    }
+
+    // Wait for setup completion
+    console.log('[CLIENT TRANSPORT V2 SETUP] Waiting for setup completion message');
+    return new Promise((resolve, reject) => {
+      // No timeout on setup - wait indefinitely for user interaction
+
+      const cleanup = () => {
+        console.log('[CLIENT TRANSPORT V2 SETUP] Cleaning up setup completion handler');
+        this.unsubscribe?.();
+      };
+
+      this.unsubscribe = this.windowControl.onMessage((event) => {
+        console.log('[CLIENT TRANSPORT V2 SETUP] Received message during setup completion wait:', event);
+        console.log('[CLIENT TRANSPORT V2 SETUP] Message data.type:', event.data.type);
+        console.log('[CLIENT TRANSPORT V2 SETUP] Checking if type === MCP_SETUP_COMPLETE:', event.data.type === 'MCP_SETUP_COMPLETE');
+        
+        if (event.data.type === 'MCP_SETUP_COMPLETE') {
+          console.log('[CLIENT TRANSPORT V2 SETUP] Received MCP_SETUP_COMPLETE message');
+          const msg = event.data as SetupCompleteMessage;
+          cleanup();
+          this.setupComplete = true;
+          
+          if (msg.status === 'success') {
+            console.log('[CLIENT TRANSPORT V2 SETUP] Setup successful:', msg);
+            resolve({
+              success: true,
+              serverTitle: msg.serverTitle,
+              transportVisibility: msg.transportVisibility,
+              ephemeralMessage: msg.ephemeralMessage
+            });
+          } else {
+            console.log('[CLIENT TRANSPORT V2 SETUP] Setup failed:', msg.error);
+            resolve({
+              success: false,
+              error: new Error(typeof msg.error === 'string' ? msg.error : msg.error?.message || 'Setup failed')
+            });
+          }
+        } else {
+          console.log('[CLIENT TRANSPORT V2 SETUP] Ignoring message during setup completion wait');
+          console.log('[CLIENT TRANSPORT V2 SETUP] Ignored message details:', {
+            type: event.data.type,
+            data: event.data,
+            origin: event.origin
+          });
+        }
+      });
+    });
+  }
+
+  // ============================================================================
+  // TRANSPORT PHASE
+  // ============================================================================
+
+  /**
+   * Prepare transport connection with server
+   */
+  async prepareToConnect(): Promise<void> {
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] prepareToConnect() called');
+    
+    if (this.closed) {
+      throw new Error('Transport already closed');
+    }
+
+    if (this.transportReady) {
+      console.log('[CLIENT TRANSPORT V2 TRANSPORT] Transport already ready, skipping');
+      return;
+    }
+
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Starting transport handshake with sessionId:', this.options.sessionId);
     try {
-      // Navigate to transport URL (without setup parameters)
-      const transportUrl = getTransportUrl(this.serverUrl);
-      await this.windowControl.navigate(transportUrl.href);
-      
-      // Perform handshake
-      this.handshakePromise = this.performHandshake();
-      await this.handshakePromise;
-      this.handshakePromise = undefined; // Clear handshake promise after completion
-      
-      // Process queued messages
-      this.processMessageQueue();
-      
+      await this.performTransportHandshake();
+      console.log('[CLIENT TRANSPORT V2 TRANSPORT] Transport handshake completed');
+      this.transportReady = true;
     } catch (error) {
-      this.cleanup();
+      console.error('[CLIENT TRANSPORT V2 TRANSPORT] Transport handshake failed:', error);
       throw error;
     }
   }
 
   /**
-   * Send a message to the server
+   * Start transport and set up message handling
    */
-  async send(message: JSONRPCMessage): Promise<void> {
-    console.log(`[CLIENT TRANSPORT] Sending message:`, message);
+  async start(): Promise<void> {
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] start() called');
     
-    if (!this.isConnected) {
-      // Queue messages until connected
-      console.log(`[CLIENT TRANSPORT] Not connected, queueing message`);
-      this.messageQueue.push(message);
-      return;
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Checking if closed:', this.closed);
+    if (this.closed) {
+      throw new Error('Transport already closed');
+    }
+
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Checking if already started:', !!this.unsubscribe);
+    if (this.unsubscribe) {
+      throw new Error('Transport already started');
+    }
+
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Checking if transport ready:', this.transportReady);
+    if (!this.transportReady) {
+      throw new Error('Transport not prepared - call prepareToConnect() first');
+    }
+
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Setting up message relay');
+    // Set up message relay
+    this.unsubscribe = this.windowControl.onMessage((event) => {
+      if (isMCPMessage(event.data)) {
+        const mcpMessage = event.data as MCPMessage;
+        console.log('[CLIENT TRANSPORT V2 TRANSPORT] Relaying MCP message:', mcpMessage);
+        this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
+      }
+    });
+
+    console.log('[CLIENT TRANSPORT V2 TRANSPORT] Transport started successfully');
+  }
+
+  /**
+   * Send MCP message to server
+   */
+  async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+    if (this.closed) {
+      throw new Error('Transport closed');
+    }
+
+    if (!this.transportReady) {
+      throw new Error('Transport not ready - call prepareToConnect() first');
     }
 
     try {
@@ -99,89 +232,103 @@ export class PostMessageTransport implements Transport {
         payload: message as any
       };
       
-      const transportUrl = getTransportUrl(this.serverUrl);
-      console.log(`[CLIENT TRANSPORT] Posting MCP message to ${transportUrl.origin}:`, mcpMessage);
-      this.windowControl.postMessage(mcpMessage, transportUrl.origin);
+      this.windowControl.postMessage(mcpMessage, this.options.serverUrl);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      console.log(`[CLIENT TRANSPORT] Send error:`, err);
       this.onerror?.(err);
       throw err;
     }
   }
 
+  // ============================================================================
+  // PRIVATE HANDSHAKE METHODS
+  // ============================================================================
+
   /**
-   * Close the transport
+   * Perform setup handshake - simplified inline implementation
    */
-  async close(): Promise<void> {
-    this.isConnected = false;
-    this.cleanup();
-    this.onclose?.();
+  private async performSetupHandshake(): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      let handshakeComplete = false;
+
+      const unsubscribe = this.windowControl.onMessage((event) => {
+        if (!isSetupMessage(event.data)) return;
+
+        const message = event.data;
+        if (message.type === 'MCP_SETUP_HANDSHAKE' && !handshakeComplete) {
+          const handshake = message as SetupHandshakeMessage;
+          
+          // Check protocol version
+          if (handshake.protocolVersion !== '1.0') {
+            cleanup();
+            reject(new Error(`Incompatible protocol version: ${handshake.protocolVersion}`));
+            return;
+          }
+
+          // Send reply
+          const reply: SetupHandshakeReplyMessage = {
+            type: 'MCP_SETUP_HANDSHAKE_REPLY',
+            protocolVersion: '1.0',
+            sessionId: this.options.sessionId
+          };
+
+          this.windowControl.postMessage(reply, '*');
+          handshakeComplete = true;
+          cleanup();
+          resolve(handshake.requiresVisibleSetup);
+        }
+      });
+
+      const cleanup = () => unsubscribe();
+    });
   }
 
   /**
-   * Perform handshake with server
+   * Perform transport handshake - simplified inline implementation
    */
-  private async performHandshake(): Promise<void> {
-    const transportUrl = getTransportUrl(this.serverUrl);
-    
+  private async performTransportHandshake(): Promise<void> {
     return withTimeout(
       new Promise<void>((resolve, reject) => {
         let handshakeComplete = false;
-        let serverReady = false;
 
-        const tempHandler = this.windowControl.onMessage((event) => {
-          // Validate origin
-          if (event.origin !== transportUrl.origin) {
-            return;
-          }
-
-          if (!isTransportMessage(event.data)) {
-            return;
-          }
+        const unsubscribe = this.windowControl.onMessage((event) => {
+          if (!isTransportMessage(event.data)) return;
 
           const message = event.data;
-
-          // Handle transport ready
           if (message.type === 'MCP_TRANSPORT_HANDSHAKE' && !handshakeComplete) {
-            const handshakeMsg = message as TransportHandshakeMessage;
+            const handshake = message as TransportHandshakeMessage;
             
-            // Check protocol version compatibility
-            if (handshakeMsg.protocolVersion !== '1.0') {
-              tempHandler();
-              reject(new Error(`Incompatible protocol version: ${handshakeMsg.protocolVersion}`));
+            // Check protocol version
+            if (handshake.protocolVersion !== '1.0') {
+              cleanup();
+              reject(new Error(`Incompatible protocol version: ${handshake.protocolVersion}`));
               return;
             }
-            
-            serverReady = true;
-            
-            // Send handshake reply
+
+            // Send reply
             const reply: TransportHandshakeReplyMessage = {
               type: 'MCP_TRANSPORT_HANDSHAKE_REPLY',
-              sessionId: this.sessionId,
-              protocolVersion: '1.0'
+              protocolVersion: '1.0',
+              sessionId: this.options.sessionId
             };
-            
-            this.windowControl.postMessage(reply, transportUrl.origin);
-            return;
-          }
 
-          // Handle transport accepted
-          if (message.type === 'MCP_TRANSPORT_ACCEPTED' && serverReady) {
-            const acceptedMsg = message as TransportAcceptedMessage;
+            this.windowControl.postMessage(reply, '*');
+          } else if (message.type === 'MCP_TRANSPORT_ACCEPTED' && !handshakeComplete) {
+            const accepted = message as TransportAcceptedMessage;
             
-            if (acceptedMsg.sessionId !== this.sessionId) {
-              tempHandler();
-              reject(new Error('Session ID mismatch'));
+            if (accepted.sessionId !== this.options.sessionId) {
+              cleanup();
+              reject(new Error(`Session ID mismatch: ${accepted.sessionId}`));
               return;
             }
 
             handshakeComplete = true;
-            this.isConnected = true;
-            tempHandler(); // Clean up temporary handler
+            cleanup();
             resolve();
           }
         });
+
+        const cleanup = () => unsubscribe();
       }),
       30000,
       'Transport handshake timeout'
@@ -189,205 +336,16 @@ export class PostMessageTransport implements Transport {
   }
 
   /**
-   * Handle incoming messages
+   * Close transport and clean up resources
    */
-  private handleMessage(event: MessageEvent): void {
-    console.log(`[CLIENT TRANSPORT] Received message from ${event.origin}:`, event.data);
-    
-    // Skip if still in handshake
-    if (this.handshakePromise) {
-      console.log(`[CLIENT TRANSPORT] Skipping message during handshake`);
+  async close(): Promise<void> {
+    if (this.closed) {
       return;
     }
 
-    // Validate origin
-    const transportUrl = getTransportUrl(this.serverUrl);
-    if (event.origin !== transportUrl.origin) {
-      console.log(`[CLIENT TRANSPORT] Origin mismatch: expected ${transportUrl.origin}, got ${event.origin}`);
-      return;
-    }
-
-    // Handle MCP messages
-    if (this.isConnected && isMCPMessage(event.data)) {
-      const mcpMessage = event.data as MCPMessage;
-      console.log(`[CLIENT TRANSPORT] Processing MCP message payload:`, mcpMessage.payload);
-      this.onmessage?.(mcpMessage.payload as JSONRPCMessage);
-    } else {
-      console.log(`[CLIENT TRANSPORT] Not processing message - connected: ${this.isConnected}, isMCPMessage: ${isMCPMessage(event.data)}`);
-    }
+    this.closed = true;
+    this.unsubscribe?.();
+    this.windowControl.destroy?.();
+    this.onclose?.();
   }
-
-  /**
-   * Process queued messages
-   */
-  private processMessageQueue(): void {
-    const queue = [...this.messageQueue];
-    this.messageQueue = [];
-    
-    for (const message of queue) {
-      this.send(message).catch(error => {
-        this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-      });
-    }
-  }
-
-  /**
-   * Clean up resources
-   */
-  private cleanup(): void {
-    if (this.cleanupHandler) {
-      this.cleanupHandler();
-      this.cleanupHandler = undefined;
-    }
-    this.messageQueue = [];
-    this.handshakePromise = undefined;
-  }
-}
-
-// ============================================================================
-// SETUP MANAGER
-// ============================================================================
-
-import {
-  SetupManagerOptions,
-  SetupResult
-} from '$sdk/types/postmessage.js';
-import {
-  SetupHandshakeMessage,
-  SetupHandshakeReplyMessage,
-  SetupCompleteMessage,
-  isSetupMessage
-} from '$protocol/types.js';
-import { getSetupUrl } from '$sdk/utils/helpers.js';
-
-/**
- * Manages the setup phase for PostMessage servers
- */
-export class PostMessageSetupManager {
-  private windowControl: WindowControl;
-  private sessionId: string;
-  private setupTimeout?: number;
-
-  constructor(options: SetupManagerOptions) {
-    this.windowControl = options.windowControl;
-    this.sessionId = options.sessionId;
-    this.setupTimeout = options.setupTimeout;
-  }
-
-  /**
-   * Perform setup for a server
-   */
-  async performSetup(serverUrl: string | URL): Promise<SetupResult> {
-    const startTime = Date.now();
-    console.log(`[SETUP MANAGER] Starting performSetup at ${startTime}`);
-    
-    const setupUrl = getSetupUrl(serverUrl);
-    console.log(`[SETUP MANAGER] Setup URL: ${setupUrl.href} at ${Date.now() - startTime}ms`);
-    
-    // Set up message handler
-    const cleanup = this.windowControl.onMessage((event) => {
-      // Setup messages are handled in performSetupHandshake
-    });
-
-    try {
-      // Navigate to setup URL
-      console.log(`[SETUP MANAGER] Starting navigation at ${Date.now() - startTime}ms`);
-      await this.windowControl.navigate(setupUrl.href);
-      console.log(`[SETUP MANAGER] Navigation completed at ${Date.now() - startTime}ms`);
-      
-      // Perform setup handshake and wait for completion
-      console.log(`[SETUP MANAGER] Starting setup process at ${Date.now() - startTime}ms`);
-      const result = await this.performSetupHandshake(setupUrl);
-      console.log(`[SETUP MANAGER] Setup completed at ${Date.now() - startTime}ms`);
-      
-      return result;
-    } finally {
-      cleanup();
-    }
-  }
-
-  /**
-   * Perform setup handshake
-   */
-  private async performSetupHandshake(setupUrl: URL): Promise<SetupResult> {
-    const startTime = Date.now();
-    console.log(`[HANDSHAKE] Starting handshake at ${startTime}`);
-    
-    return withTimeout(
-      new Promise<SetupResult>((resolve, reject) => {
-        let handshakeComplete = false;
-        let serverReady = false;
-
-        const tempHandler = this.windowControl.onMessage((event) => {
-          // Validate origin
-          if (event.origin !== setupUrl.origin) {
-            return;
-          }
-
-          if (!isSetupMessage(event.data)) {
-            return;
-          }
-
-          const message = event.data;
-          console.log(`[HANDSHAKE] Received message: ${message.type} at ${Date.now() - startTime}ms`);
-
-          // Handle setup ready
-          if (message.type === 'MCP_SETUP_HANDSHAKE' && !handshakeComplete) {
-            const handshakeMsg = message as SetupHandshakeMessage;
-            console.log(`[HANDSHAKE] Server ready, sending reply at ${Date.now() - startTime}ms`);
-            
-            // Check protocol version compatibility
-            if (handshakeMsg.protocolVersion !== '1.0') {
-              tempHandler();
-              reject(new Error(`Incompatible protocol version: ${handshakeMsg.protocolVersion}`));
-              return;
-            }
-            
-            serverReady = true;
-            
-            // Show window if setup requires visibility
-            if (handshakeMsg.requiresVisibleSetup) {
-              this.windowControl.setVisible(true);
-            }
-            
-            // Send handshake reply
-            const reply: SetupHandshakeReplyMessage = {
-              type: 'MCP_SETUP_HANDSHAKE_REPLY',
-              protocolVersion: '1.0',
-              sessionId: this.sessionId
-            };
-            
-            this.windowControl.postMessage(reply, setupUrl.origin);
-            handshakeComplete = true;
-            console.log(`[HANDSHAKE] Handshake reply sent at ${Date.now() - startTime}ms`);
-            return;
-          }
-
-          // Handle setup complete
-          if (message.type === 'MCP_SETUP_COMPLETE' && serverReady) {
-            const completeMsg = message as SetupCompleteMessage;
-            console.log(`[HANDSHAKE] Setup complete received at ${Date.now() - startTime}ms`);
-            
-            tempHandler(); // Clean up temporary handler
-            
-            if (completeMsg.status === 'success') {
-              resolve({
-                success: true,
-                serverTitle: completeMsg.serverTitle,
-                transportVisibility: completeMsg.transportVisibility
-              });
-            } else {
-              resolve({
-                success: false,
-                error: completeMsg.error
-              });
-            }
-          }
-        });
-      }),
-      this.setupTimeout || 300000, // Default 5 minutes
-      'Setup timeout'
-    );
-  }
-
 }

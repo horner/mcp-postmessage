@@ -6,114 +6,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { 
-  PostMessageSetupHelper, 
-  PostMessageServerTransport 
+  PostMessageTransport
 } from '$sdk/server/transport.js';
+import { 
+  PostMessageServerWindowControl
+} from '$sdk/server/window-control.js';
 import { 
   getServerPhase, 
   isInWindowContext 
 } from '$sdk/utils/helpers.js';
 
-// ============================================================================
-// MERMAID DIAGRAM EXAMPLES
-// ============================================================================
-
-const DIAGRAM_EXAMPLES = {
-  flowchart: {
-    title: 'Basic Flowchart',
-    description: 'Simple decision flow',
-    code: `flowchart TD
-    A[Start] --> B{Is it?}
-    B -->|Yes| C[OK]
-    B -->|No| D[End]
-    C --> D`
-  },
-  sequence: {
-    title: 'Sequence Diagram',
-    description: 'API interaction flow',
-    code: `sequenceDiagram
-    participant A as Alice
-    participant B as Bob
-    A->>+B: Hello Bob, how are you?
-    B-->>-A: Great!
-    A->>+B: How about the weather?
-    B-->>-A: It's sunny!`
-  },
-  class: {
-    title: 'Class Diagram',
-    description: 'Object-oriented design',
-    code: `classDiagram
-    class Animal {
-        +String name
-        +int age
-        +makeSound()
-    }
-    class Dog {
-        +String breed
-        +bark()
-    }
-    Animal <|-- Dog`
-  },
-  state: {
-    title: 'State Diagram',
-    description: 'State machine example',
-    code: `stateDiagram-v2
-    [*] --> Still
-    Still --> [*]
-    Still --> Moving
-    Moving --> Still
-    Moving --> Crash
-    Crash --> [*]`
-  },
-  gantt: {
-    title: 'Gantt Chart',
-    description: 'Project timeline',
-    code: `gantt
-    title A Gantt Diagram
-    dateFormat  YYYY-MM-DD
-    section Section
-    A task           :a1, 2014-01-01, 30d
-    Another task     :after a1  , 20d
-    section Another
-    Task in sec      :2014-01-12  , 12d
-    another task     : 24d`
-  },
-  pie: {
-    title: 'Pie Chart',
-    description: 'Data visualization',
-    code: `pie title Pets adopted by volunteers
-    "Dogs" : 386
-    "Cats" : 85
-    "Rats" : 15`
-  },
-  git: {
-    title: 'Git Graph',
-    description: 'Branch visualization',
-    code: `gitgraph
-    commit
-    commit
-    branch develop
-    checkout develop
-    commit
-    commit
-    checkout main
-    merge develop
-    commit`
-  },
-  journey: {
-    title: 'User Journey',
-    description: 'User experience flow',
-    code: `journey
-    title My working day
-    section Go to work
-      Make tea: 5: Me
-      Go upstairs: 3: Me
-      Do work: 1: Me, Cat
-    section Go home
-      Go downstairs: 5: Me
-      Sit down: 5: Me`
-  }
-};
+const DEFAULT_DIAGRAM = `flowchart TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action 1]
+    B -->|No| D[Action 2]
+    C --> E[End]
+    D --> E`;
 
 // ============================================================================
 // MERMAID INTEGRATION
@@ -200,17 +108,6 @@ class MermaidRenderer {
     }
   }
 
-  getDiagramTypes(): string[] {
-    return Object.keys(DIAGRAM_EXAMPLES);
-  }
-
-  getExample(type: string): { title: string; description: string; code: string } | null {
-    return DIAGRAM_EXAMPLES[type as keyof typeof DIAGRAM_EXAMPLES] || null;
-  }
-
-  getAllExamples(): Record<string, { title: string; description: string; code: string }> {
-    return DIAGRAM_EXAMPLES;
-  }
 }
 
 // ============================================================================
@@ -314,13 +211,6 @@ class MermaidEditorUI {
     return await this.renderDiagram();
   }
 
-  getDiagramTypes(): string[] {
-    return this.renderer.getDiagramTypes();
-  }
-
-  getExample(type: string): { title: string; description: string; code: string } | null {
-    return this.renderer.getExample(type);
-  }
 }
 
 // ============================================================================
@@ -340,7 +230,7 @@ function getMermaidEditorServer(ui: MermaidEditorUI): McpServer {
       title: 'Draw Mermaid Diagram',
       description: 'Draw a Mermaid diagram from code',
       inputSchema: {
-        code: z.string().describe('The Mermaid diagram code to draw. Example: flowchart TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Action 1]\n    B -->|No| D[Action 2]\n    C --> E[End]\n    D --> E')
+        code: z.string().describe(`The Mermaid diagram code to draw. Example: ${DEFAULT_DIAGRAM}`)
       }
     },
     async ({ code }) => {
@@ -386,137 +276,40 @@ function getMermaidEditorServer(ui: MermaidEditorUI): McpServer {
   return server;
 }
 
-// ============================================================================
-// MERMAID EDITOR SERVER
-// ============================================================================
-
-class MermaidEditorServer {
-  private server: McpServer | null = null;
-  private ui: MermaidEditorUI | null = null;
-  
-  async start(): Promise<void> {
-    const phase = getServerPhase();
-    
-    if (phase === 'setup') {
-      await this.startSetupPhase();
-    } else {
-      await this.startTransportPhase();
-    }
-  }
-  
-  private async startSetupPhase(): Promise<void> {
-    console.log('[MERMAID SETUP] Starting setup phase for Mermaid Diagram Editor');
-    
-    const setupHelper = new PostMessageSetupHelper({
-      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
-      // Production servers MUST specify explicit origins:
-      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
-      allowedOrigins: ['*'],
-      requiresVisibleSetup: false
-    });
-    
-    // Wait for handshake
-    await setupHelper.waitForHandshake();
-    console.log('[MERMAID SETUP] Handshake completed');
-    
-    // Show setup UI
-    this.showPhase('setup');
-    
-    // Complete setup immediately since no configuration needed
-    await setupHelper.completeSetup({
-      serverTitle: 'Mermaid Diagram Editor',
-      transportVisibility: {
-        requirement: 'required',
-        optionalMessage: 'Editor interface is required for diagram creation and editing'
-      },
-      ephemeralMessage: 'Mermaid Editor ready!'
-    });
-    console.log('[MERMAID SETUP] Setup phase completed');
-  }
-  
-  private async startTransportPhase(): Promise<void> {
-    // Show transport UI
-    this.showPhase('transport');
-    
-    // Initialize UI
-    this.ui = new MermaidEditorUI();
-    
-    // Create MCP server
-    this.server = getMermaidEditorServer(this.ui);
-    
-    const transport = new PostMessageServerTransport({
-      // ⚠️ SECURITY WARNING: ['*'] allows any origin - FOR DEMO ONLY!
-      // Production servers MUST specify explicit origins:
-      // allowedOrigins: ['https://my-client-app.com', 'https://localhost:3000']
-      allowedOrigins: ['*']
-    });
-    
-    await this.server.connect(transport);
-  }
-  
-  private showPhase(phase: 'setup' | 'transport'): void {
-    const loading = document.getElementById('loading');
-    const setupPhase = document.getElementById('setup-phase');
-    const main = document.querySelector('.main') as HTMLElement;
-    
-    if (loading) loading.classList.add('hidden');
-    
-    if (phase === 'setup') {
-      setupPhase?.classList.remove('hidden');
-      main?.classList.add('hidden');
-    } else {
-      setupPhase?.classList.add('hidden');
-      main?.classList.remove('hidden');
-    }
-  }
-  
-  private showError(message: string): void {
-    const container = document.querySelector('.container');
-    if (container) {
-      container.innerHTML = `
-        <div style="
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: #fef2f2;
-          border: 1px solid #fecaca;
-          color: #dc2626;
-          padding: 2rem;
-          border-radius: 0.5rem;
-          max-width: 500px;
-          text-align: center;
-        ">
-          <h2 style="margin: 0 0 1rem 0; color: #dc2626;">Error</h2>
-          <p style="margin: 0;">${message}</p>
-        </div>
-      `;
-    }
-  }
-}
-
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
+// Configuration  
+const CONFIG = {
+  origins: ['*'], // In production, lock down to specific origins
+  title: 'Mermaid Diagram Editor',
+  visibility: 'required' as const,
+  message: 'Mermaid Editor ready!'
+};
 
 async function main() {
-  try {
-    // Ensure we're in a window context (iframe/popup)
-    if (!isInWindowContext()) {
-      throw new Error('This server must run in an iframe or popup window');
-    }
+  if (!isInWindowContext()) throw new Error('Mermaid needs a window');
+  
+  const transport = new PostMessageTransport(
+    new PostMessageServerWindowControl(CONFIG.origins),
+    { requiresVisibleSetup: false }
+  );
+  
+  if (getServerPhase() === 'setup') {
+    await transport.prepareSetup();
+    await transport.completeSetup({
+      serverTitle: CONFIG.title,
+      transportVisibility: { requirement: CONFIG.visibility },
+      ephemeralMessage: CONFIG.message
+    });
+  } else {
+    await transport.prepareToConnect();
     
-    const server = new MermaidEditorServer();
-    await server.start();
+    document.getElementById('loading')?.classList.add('hidden');
+    document.getElementById('setup-phase')?.classList.add('hidden');
+    document.querySelector('.main')?.classList.remove('hidden');
     
-  } catch (error) {
-    console.error('Failed to start Mermaid Editor server:', error);
-    
-    const server = new MermaidEditorServer();
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    (server as any).showError(errorMessage);
+    const ui = new MermaidEditorUI();
+    const server = getMermaidEditorServer(ui);
+    await server.connect(transport);
   }
 }
 
-// Start the server
-main();
+main().catch(console.error);
