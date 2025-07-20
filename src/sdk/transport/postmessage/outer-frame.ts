@@ -433,10 +433,10 @@ export class PopupWindowControl implements OuterWindowControl {
 
 export interface SetupResult {
   success: boolean;
-  serverTitle?: string;
+  displayName?: string;
   transportVisibility?: {
     requirement: 'required' | 'optional' | 'hidden';
-    optionalMessage?: string;
+    description?: string;
   };
   ephemeralMessage?: string;
   error?: Error;
@@ -504,7 +504,7 @@ export class OuterFrameTransport implements Transport {
             logger.log('Setup successful');
             resolve({
               success: true,
-              serverTitle: msg.serverTitle,
+              displayName: msg.displayName,
               transportVisibility: msg.transportVisibility,
               ephemeralMessage: msg.ephemeralMessage
             });

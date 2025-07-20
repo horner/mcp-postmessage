@@ -525,7 +525,7 @@ function showPhase(phase: 'setup' | 'transport'): void {
 
 async function completeSetup() {
   await transport.completeSetup({
-    serverTitle: CONFIG.title,
+    displayName: CONFIG.title,
     transportVisibility: { requirement: CONFIG.visibility },
     ephemeralMessage: CONFIG.message
   });

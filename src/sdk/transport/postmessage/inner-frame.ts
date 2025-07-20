@@ -176,10 +176,10 @@ export interface SetupConfig {
 }
 
 export interface SetupResult {
-  serverTitle: string;
+  displayName: string;
   transportVisibility: {
     requirement: 'required' | 'optional' | 'hidden';
-    optionalMessage?: string;
+    description?: string;
   };
   ephemeralMessage?: string;
 }
@@ -235,7 +235,7 @@ export class InnerFrameTransport implements Transport {
     this.control.postMessage({
       type: 'MCP_SETUP_COMPLETE',
       status: 'success',
-      serverTitle: result.serverTitle,
+      displayName: result.displayName,
       transportVisibility: result.transportVisibility,
       ephemeralMessage: result.ephemeralMessage
     });

@@ -115,7 +115,7 @@ if (phase === 'setup') {
   const setupHandler = new PostMessageSetupHandler({
     allowedOrigins: ['http://localhost:3000'],
     requiresVisibleSetup: false,
-    serverTitle: 'My Server',
+    displayName: 'My Server',
     transportVisibility: { requirement: 'hidden' },
     onSetup: async () => {
       // Handle configuration logic

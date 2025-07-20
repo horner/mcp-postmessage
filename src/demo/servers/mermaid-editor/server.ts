@@ -293,7 +293,7 @@ async function main() {
   if (getServerPhase() === 'setup') {
     await transport.prepareSetup();
     await transport.completeSetup({
-      serverTitle: CONFIG.title,
+      displayName: CONFIG.title,
       transportVisibility: { requirement: CONFIG.visibility },
       ephemeralMessage: CONFIG.message
     });

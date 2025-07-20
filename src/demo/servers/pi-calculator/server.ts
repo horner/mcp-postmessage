@@ -158,7 +158,7 @@ async function main() {
   if (getServerPhase() === 'setup') {
     await transport.prepareSetup();
     await transport.completeSetup({
-      serverTitle: 'Pi Calculator',
+      displayName: 'Pi Calculator',
       transportVisibility: { requirement: 'optional' },
       ephemeralMessage: 'π is ready'
     });

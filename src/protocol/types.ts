@@ -24,18 +24,15 @@
 // ============================================================================
 
 /**
- * Step 1: Server → Client
+ * Setup Handshake (Inner Frame → Outer Frame)
  * 
- * Context: User has clicked "Add Server" in the client UI and entered a URL.
- * The client creates a hidden iframe pointing to the server URL with #setup.
- * The server detects the setup parameter and sends this handshake message.
+ * Context: The Outer Frame has created a subordinate window (Inner Frame) and
+ * navigated it to a URL with a `#setup` hash. The code in the Inner Frame
+ * detects this and initiates the setup phase by sending this message.
  * 
- * This message is sent before trust is established, so it contains only
- * the minimum information needed to proceed with setup.
- * 
- * TARGET ORIGIN: The server must use '*' as the target origin for this
- * message because it doesn't yet know who is framing it. This is the ONLY
- * message where '*' is acceptable.
+ * TARGET ORIGIN: The Inner Frame must use '*' because it cannot know the
+ * origin of its parent/opener at this stage. This is the only message where
+ * the initiating party uses a wildcard target origin.
  */
 export interface SetupHandshakeMessage {
   type: 'MCP_SETUP_HANDSHAKE';
@@ -48,22 +45,18 @@ export interface SetupHandshakeMessage {
 }
 
 /**
- * Step 2: Client → Server
+ * Setup Handshake Reply (Outer Frame → Inner Frame)
  * 
- * Context: The client has received the handshake message and validates that
- * it can work with this protocol version. If requiresVisibleSetup is true,
- * the client makes the iframe visible to the user.
+ * Context: The Outer Frame receives the `SetupHandshakeMessage` and replies
+ * to confirm its willingness to proceed with setup. If `requiresVisibleSetup`
+ * was true, the Outer Frame is responsible for making the Inner Frame visible.
  * 
- * The client sends this reply to complete the mutual handshake. The server
- * will validate the origin using event.origin from the MessageEvent.
+ * TARGET ORIGIN: The Outer Frame uses the origin of the Inner Frame, which
+ * it knows from the iframe's `src` or the popup's URL.
  * 
- * TARGET ORIGIN: The client uses the server's origin (from the iframe URL)
- * as the target origin for this and all subsequent messages.
- * 
- * SECURITY: Upon receiving this message, the server must:
- * 1. Check event.origin against its allowed origins list
- * 2. If allowed, pin this origin for all future messages to this client
- * 3. Never use '*' as target origin after this point
+ * SECURITY: Upon receiving this message, the Inner Frame must:
+ * 1. Validate that `event.origin` matches the expected Outer Frame's origin.
+ * 2. Pin `event.origin` for all subsequent communication in this session.
  */
 export interface SetupHandshakeReplyMessage {
   type: 'MCP_SETUP_HANDSHAKE_REPLY';
@@ -75,24 +68,22 @@ export interface SetupHandshakeReplyMessage {
   protocolVersion: '1.0';
   
   /** 
-   * Unique identifier for this server connection
-   * Used to isolate data storage between different server entries
+   * Unique identifier for this connection instance.
+   * The MCP Client provides this ID, and the MCP Server uses it to
+   * scope any persistent storage (e.g., localStorage).
    */
   sessionId: string;
 }
 
 /**
- * Step 3: Server → Client
+ * Setup Complete (Inner Frame → Outer Frame)
  * 
- * Context: Setup is now in progress. If visible, the server is showing
- * its configuration UI (auth forms, option selections, etc). The user
- * interacts with this UI until setup is complete.
+ * Context: The setup process within the Inner Frame is complete (e.g., user
+ * authenticated, configuration set). The Inner Frame sends this final message
+ * to the Outer Frame, which can then persist the configuration and close
+ * or hide the setup window.
  * 
- * When setup finishes (successfully or with error), the server sends
- * this message. The client saves the configuration data and can hide
- * the iframe.
- * 
- * TARGET ORIGIN: The server uses the pinned origin from Step 2.
+ * TARGET ORIGIN: The Inner Frame uses the pinned origin of the Outer Frame.
  */
 export interface SetupCompleteMessage {
   type: 'MCP_SETUP_COMPLETE';
@@ -101,11 +92,12 @@ export interface SetupCompleteMessage {
   status: 'success' | 'error';
   
   /** 
-   * Display name for this server configuration
-   * Examples: "OpenAI GPT-4", "John's Health Records", "Test Database"
-   * This appears in the client's server list
+   * A user-facing name for the inner frame's application.
+   * In the Standard Architecture, this is the MCP Server's title (e.g., "Pi Calculator").
+   * In the Inverted Architecture, this could be the MCP Client's title (e.g., "AI Copilot").
+   * This appears in the Outer Frame's UI.
    */
-  serverTitle: string;
+  displayName: string;
   
   /** 
    * Optional message to briefly show the user (toast/notification style)
@@ -125,11 +117,14 @@ export interface SetupCompleteMessage {
      */
     requirement: 'required' | 'optional' | 'hidden';
     
-    /** 
-     * If requirement is 'optional', explain the tradeoff to help user decide
-     * Example: "Show server to see real-time query logs and performance metrics"
+    /**
+     * If `requirement` is 'optional', this user-facing string describes
+     * the benefit of keeping the transport visible. The Outer Frame's UI
+     * should display this next to a show/hide control.
+     *
+     * @example "Show to see live diagram previews."
      */
-    optionalMessage?: string;
+    description?: string;
   };
   
   /** If status is 'error', details about what went wrong */
@@ -144,18 +139,14 @@ export interface SetupCompleteMessage {
 // ============================================================================
 
 /**
- * Step 1: Server → Client
+ * Transport Handshake (Inner Frame → Outer Frame)
  * 
- * Context: User has clicked "Connect" on a previously configured server.
- * The client creates an iframe (visible or hidden based on saved preferences)
- * and navigates to the server URL WITHOUT #setup parameter. The server detects
- * the absence of the parameter and sends this transport handshake.
+ * Context: The Outer Frame has created a subordinate window (Inner Frame) for
+ * an active transport session (i.e., no `#setup` hash). The Inner Frame
+ * initiates the connection by sending this message.
  * 
- * Note: This is a different iframe instance than during setup - the server
- * is stateless between connections.
- * 
- * TARGET ORIGIN: The server must use '*' because this is a fresh iframe
- * and it doesn't know the client origin yet. This mirrors the setup phase.
+ * TARGET ORIGIN: The Inner Frame must use '*' because, as a new window
+ * instance, it does not yet know its controller's origin.
  */
 export interface TransportHandshakeMessage {
   type: 'MCP_TRANSPORT_HANDSHAKE';
@@ -165,23 +156,25 @@ export interface TransportHandshakeMessage {
 }
 
 /**
- * Step 2: Client → Server
+ * Transport Handshake Reply (Outer Frame → Inner Frame)
  * 
- * Context: The client received the handshake message and wants to establish
- * the MCP transport connection. It sends this reply with session details.
- * The server validates the origin using event.origin from the MessageEvent.
+ * Context: The Outer Frame receives the `TransportHandshakeMessage` and replies
+ * with the `sessionId` for this connection, authorizing the transport to begin.
  * 
- * TARGET ORIGIN: The client uses the server's origin (from the iframe URL).
+ * TARGET ORIGIN: The Outer Frame uses the Inner Frame's origin.
  * 
- * SECURITY: Upon receiving this message, the server must:
- * 1. Check event.origin against its allowed origins list
- * 2. If allowed, pin this origin for all messages in this session
- * 3. Use only the pinned origin (never '*') for the rest of the session
+ * SECURITY: Upon receiving this message, the Inner Frame must:
+ * 1. Validate that `event.origin` is an allowed origin.
+ * 2. Pin `event.origin` for all subsequent communication in this session.
  */
 export interface TransportHandshakeReplyMessage {
   type: 'MCP_TRANSPORT_HANDSHAKE_REPLY';
   
-  /** Unique identifier for this connection session */
+  /** 
+   * Unique identifier for this connection instance.
+   * The MCP Client provides this ID, and the MCP Server uses it to
+   * scope any persistent storage (e.g., localStorage).
+   */
   sessionId: string;
   
   /** Protocol version for compatibility checking */
@@ -189,13 +182,13 @@ export interface TransportHandshakeReplyMessage {
 }
 
 /**
- * Step 3: Server → Client
+ * Transport Accepted (Inner Frame → Outer Frame)
  * 
- * Context: The server has validated the client's origin and is ready
- * to begin MCP protocol communication. After this message, both sides
- * can exchange standard MCP messages.
+ * Context: The Inner Frame has received the handshake reply, validated the
+ * Outer Frame's origin, and is now ready for MCP communication. This message
+ * signals to the Outer Frame that the transport is fully established.
  * 
- * TARGET ORIGIN: The server uses the pinned origin from Step 2.
+ * TARGET ORIGIN: The Inner Frame uses the pinned origin of the Outer Frame.
  */
 export interface TransportAcceptedMessage {
   type: 'MCP_TRANSPORT_ACCEPTED';
@@ -240,18 +233,18 @@ export interface MCPMessage {
 // ============================================================================
 
 /**
- * Server → Client (Optional)
+ * (Inner Frame → Outer Frame) (Optional)
  * 
- * Context: During an active MCP session, the server realizes it needs
- * the user to run setup again. For example:
+ * Context: During an active session, the Inner Frame determines it needs 
+ * to re-run the setup phase. For example:
  * - OAuth token has expired
  * - API key is no longer valid  
  * - Server configuration has changed
  * - User permissions have changed
  * 
- * The client should prompt the user to re-run setup for this server.
+ * The Outer Frame should prompt the user to re-run setup for this server.
  * 
- * TARGET ORIGIN: The server uses the pinned origin from the session.
+ * TARGET ORIGIN: The Inner Frame uses the pinned origin from the session.
  */
 export interface SetupRequiredMessage {
   type: 'MCP_SETUP_REQUIRED';

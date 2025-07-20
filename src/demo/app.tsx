@@ -258,7 +258,7 @@ function App() {
       
       if (result.success) {
         updateServer(server.id, {
-          name: result.serverTitle || server.name,
+          name: result.displayName || server.name,
           setupComplete: true,
           connectionStatus: 'disconnected' as const,
           transportVisibility: result.transportVisibility
