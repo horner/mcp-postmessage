@@ -1,4 +1,4 @@
-'''# SEP: postMessage Transport
+# SEP: postMessage Transport
 
 ## Preamble
 
@@ -537,4 +537,3 @@ Each server demonstrates the complete protocol flow from setup through active MC
 ### Open Security Questions
 
 1. Should the protocol include capability requirements/negotiation for sandbox restrictions?
-''
