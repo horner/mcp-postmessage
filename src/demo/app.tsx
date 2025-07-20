@@ -112,13 +112,42 @@ function App() {
     setTimeout(() => setToasts(prev => prev.filter(toast => toast.id !== id)), 5000);
   };
 
-  // Initialize servers from localStorage on mount
+  // Initialize servers from localStorage on mount and auto-connect
   useEffect(() => {
-    const savedServers = loadServersFromStorage();
-    if (savedServers.length > 0) {
-      setServers(savedServers);
-      showToast('info', `Loaded ${savedServers.length} saved server(s)`);
-    }
+    const initializeServers = async () => {
+      const savedServers = loadServersFromStorage();
+      if (savedServers.length > 0) {
+        setServers(savedServers);
+        showToast('info', `Loaded ${savedServers.length} saved server(s)`);
+        
+        // Auto-connect to servers that are already set up
+        for (const server of savedServers) {
+          if (server.setupComplete && server.connectionStatus === 'disconnected') {
+            connect(server);
+          }
+        }
+      } else {
+        // If no saved servers, auto-add pi-calculator
+        const piExample = SERVER_EXAMPLES.find(example => example.name === 'Pi Calculator');
+        
+        if (piExample) {
+          showToast('info', 'Auto-adding Pi Calculator server...');
+          
+          const newServer: Server = {
+            id: generateUUID(),
+            name: piExample.name,
+            url: piExample.url,
+            setupComplete: false,
+            connectionStatus: 'disconnected'
+          };
+          
+          setServers(prev => [...prev, newServer]);
+          runSetup(newServer, true);
+        }
+      }
+    };
+
+    initializeServers();
 
     // Add global postMessage debugging
     const debugHandler = (event: MessageEvent) => {
@@ -235,7 +264,7 @@ function App() {
   // SETUP PHASE
   // ============================================================================
 
-  const runSetup = async (server: Server) => {
+  const runSetup = async (server: Server, autoConnect = false) => {
     updateServer(server.id, { connectionStatus: 'connecting' });
     setSetupServerUrl(server.url);
     
@@ -257,13 +286,21 @@ function App() {
       const result = await transport.setup();
       
       if (result.success) {
-        updateServer(server.id, {
+        const updatedServer = {
+          ...server,
           name: result.displayName || server.name,
           setupComplete: true,
           connectionStatus: 'disconnected' as const,
           transportVisibility: result.transportVisibility
-        });
+        };
+        
+        updateServer(server.id, updatedServer);
         showToast('success', result.ephemeralMessage || 'Setup completed successfully');
+        
+        // Auto-connect if requested
+        if (autoConnect) {
+          connect(updatedServer);
+        }
       } else {
         setServers(prev => prev.filter(s => s.id !== server.id));
         showToast('error', result.error?.message || 'Setup failed');
