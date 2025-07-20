@@ -326,11 +326,7 @@ let copilotApp: CopilotApp;
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[AI-COPILOT] Page loaded, creating application...');
   copilotApp = new CopilotApp();
-  
-  // Small delay to ensure parent is ready
-  setTimeout(() => {
-    copilotApp.initialize();
-  }, 500);
+  copilotApp.initialize();
 });
 
 // Cleanup on page unload
