@@ -19,20 +19,11 @@ This is a reference implementation for a **proposed new transport** for the Mode
    bun install
    ```
 
-2. **Start the demo (recommended):**
+2. **Start the demo:**
    ```bash
-   bun run demo
+   bun run dev
    ```
-   This starts both the client and Pi Calculator server.
-
-3. **Or start individually:**
-   ```bash
-   # Terminal 1: Start client
-   bun run demo:client
-   
-   # Terminal 2: Start Pi Calculator server  
-   bun run demo:pi
-   ```
+   This starts the demo server.
 
 ### Building for Production
 

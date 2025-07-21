@@ -62,7 +62,7 @@
             pointer-events: none;
         }
         
-        .file-button {
+        .file-button, .example-button {
             background: #e17055;
             color: white;
             border: none;
@@ -81,8 +81,17 @@
             margin: 0 auto;
         }
         
+        .example-button {
+            background: #6c5ce7;
+        }
+        
         .file-button:hover {
             background: #d63031;
+            transform: translateY(-2px);
+        }
+        
+        .example-button:hover {
+            background: #5f3dc4;
             transform: translateY(-2px);
         }
         
@@ -243,6 +252,10 @@
                 <button type="button" class="file-button">
                     <span>📄</span>
                     Choose JSON File
+                </button>
+                <button type="button" class="example-button">
+                    <span>✨</span>
+                    Use Example File
                 </button>
             </div>
             

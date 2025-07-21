@@ -353,10 +353,23 @@ function App() {
       
       try {
         const toolsResult = await client.listTools();
-        updateServer(server.id, {
-          tools: (toolsResult.tools || []).map(({ name, title, description, inputSchema }) => 
-            ({ name, title, description, inputSchema }))
+        const tools = (toolsResult.tools || []).map(({ name, title, description, inputSchema }) => 
+            ({ name, title, description, inputSchema }));
+        
+        // Set default params for the new tools
+        setToolParams(prev => {
+          const newParams = { ...prev };
+          for (const tool of tools) {
+            const key = getToolParamKey(server.id, tool.name);
+            if (!newParams[key]) {
+              newParams[key] = getDefaultParamsForTool(tool);
+            }
+          }
+          return newParams;
         });
+
+        updateServer(server.id, { tools });
+        
       } catch (error) {
         console.warn('Failed to request tools list:', error);
       }
@@ -462,8 +475,8 @@ function App() {
   };
 
   const getToolParamKey = (serverId: string, toolName: string) => `${serverId}-${toolName}`;
-  const getToolParams = (serverId: string, toolName: string, tool: any) => 
-    toolParams[getToolParamKey(serverId, toolName)] || getDefaultParamsForTool(tool);
+  const getToolParams = (serverId: string, toolName: string) => 
+    toolParams[getToolParamKey(serverId, toolName)] || {};
   
   const updateToolParams = (serverId: string, toolName: string, params: any) => 
     setToolParams(prev => ({ ...prev, [getToolParamKey(serverId, toolName)]: params }));
