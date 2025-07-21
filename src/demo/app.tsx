@@ -142,7 +142,7 @@ function App() {
           };
           
           setServers(prev => [...prev, newServer]);
-          runSetup(newServer, true);
+          runSetup(newServer);
         }
       }
     };
@@ -264,7 +264,7 @@ function App() {
   // SETUP PHASE
   // ============================================================================
 
-  const runSetup = async (server: Server, autoConnect = false) => {
+  const runSetup = async (server: Server) => {
     updateServer(server.id, { connectionStatus: 'connecting' });
     setSetupServerUrl(server.url);
     
@@ -297,10 +297,8 @@ function App() {
         updateServer(server.id, updatedServer);
         showToast('success', result.ephemeralMessage || 'Setup completed successfully');
         
-        // Auto-connect if requested
-        if (autoConnect) {
-          connect(updatedServer);
-        }
+        // Always auto-connect after successful setup
+        connect(updatedServer);
       } else {
         setServers(prev => prev.filter(s => s.id !== server.id));
         showToast('error', result.error?.message || 'Setup failed');
@@ -491,8 +489,12 @@ function App() {
       height: '100vh', 
       display: 'grid',
       gridTemplateRows: 'auto 1fr',
-      gridTemplateColumns: '350px 500px 1fr',
-      gridTemplateAreas: '"header header header" "sidebar tools content"',
+      gridTemplateColumns: window.innerWidth < 768 ? '1fr' : window.innerWidth < 1200 ? '300px 1fr' : '350px 500px 1fr',
+      gridTemplateAreas: window.innerWidth < 768 
+        ? '"header" "sidebar" "tools" "content"' 
+        : window.innerWidth < 1200 
+        ? '"header header" "sidebar tools"'
+        : '"header header header" "sidebar tools content"',
       overflow: 'hidden'
     }}>
       {/* Header */}
