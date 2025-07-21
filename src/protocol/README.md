@@ -66,7 +66,7 @@ By separating the window hierarchy from MCP roles, the transport supports two po
 *   **Inner Frame**: MCP Client
 *   **Use Case**: A primary application (like a user dashboard) provides contextual data as tools to an embedded, sandboxed AI copilot.
 
-| Transport Feature         | Standard Architecture (e.g., Demo Client)      | Inverted Architecture (e.g., User Dashboard)   |
+| Transport Feature         | Standard Architecture      | Inverted Architecture   |
 |---------------------------|------------------------------------------------|------------------------------------------------|
 | **Outer Frame Role**      | MCP Client                                     | MCP Server                                     |
 | **Inner Frame Role**      | MCP Server                                     | MCP Client                                     |
