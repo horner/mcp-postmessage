@@ -484,18 +484,8 @@ function App() {
   // ============================================================================
 
   return (
-    <div style={{ 
-      fontFamily: 'system-ui, sans-serif', 
-      height: '100vh', 
-      display: 'grid',
-      gridTemplateRows: 'auto 1fr',
-      gridTemplateColumns: window.innerWidth < 768 ? '1fr' : window.innerWidth < 1200 ? '300px 1fr' : '350px 500px 1fr',
-      gridTemplateAreas: window.innerWidth < 768 
-        ? '"header" "sidebar" "tools" "content"' 
-        : window.innerWidth < 1200 
-        ? '"header header" "sidebar tools"'
-        : '"header header header" "sidebar tools content"',
-      overflow: 'hidden'
+    <div className="app-container" style={{ 
+      fontFamily: 'system-ui, sans-serif'
     }}>
       {/* Header */}
       <header style={{ 
@@ -511,10 +501,9 @@ function App() {
         </p>
       </header>
         {/* LEFT: Server Management Sidebar */}
-        <div style={{ 
+        <div className="sidebar" style={{ 
           gridArea: 'sidebar',
           background: '#f9fafb', 
-          borderRight: '1px solid #e5e7eb',
           padding: '1.5rem',
           overflowY: 'auto'
         }}>
@@ -775,10 +764,9 @@ function App() {
         </div>
 
         {/* MIDDLE: Combined Tools Column */}
-        <div style={{ 
+        <div className="tools" style={{ 
           gridArea: 'tools',
           background: 'white', 
-          borderRight: '1px solid #e5e7eb',
           padding: '1.5rem',
           overflowY: 'auto'
         }}>
@@ -947,7 +935,7 @@ function App() {
         </div>
 
         {/* RIGHT: Server Iframes */}
-        <div style={{ 
+        <div className="content" style={{ 
           gridArea: 'content',
           display: 'flex', 
           flexDirection: 'column',
@@ -1144,6 +1132,81 @@ function App() {
       </footer>
 
       <style>{`
+        .app-container {
+          display: grid;
+          grid-template-rows: auto 1fr;
+          grid-template-columns: 350px 500px 1fr;
+          grid-template-areas: "header header header" "sidebar tools content";
+          height: 100vh;
+          overflow: hidden;
+          padding-bottom: 60px; /* Account for fixed footer */
+          box-sizing: border-box;
+        }
+        
+        .sidebar {
+          border-right: 1px solid #e5e7eb;
+        }
+        
+        .tools {
+          border-right: 1px solid #e5e7eb;
+        }
+        
+        /* Tablet Layout */
+        @media (max-width: 1199px) {
+          .app-container {
+            grid-template-columns: 300px 1fr;
+            grid-template-areas: "header header" "sidebar tools";
+          }
+          
+          .content {
+            display: none;
+          }
+        }
+        
+        /* Mobile Layout */
+        @media (max-width: 767px) {
+          .app-container {
+            display: block;
+            height: auto;
+            overflow: visible;
+            padding-bottom: 0;
+          }
+          
+          .sidebar {
+            border-right: none;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem;
+            max-height: none;
+            overflow-y: visible;
+          }
+          
+          .tools {
+            border-right: none;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem;
+            max-height: none;
+            overflow-y: visible;
+          }
+          
+          .content {
+            display: block;
+            min-height: 50vh;
+          }
+          
+          header {
+            position: static !important;
+          }
+          
+          footer {
+            position: static !important;
+            margin-top: 2rem;
+            flex-direction: column !important;
+            gap: 0.5rem !important;
+            text-align: center !important;
+            padding: 1rem !important;
+          }
+        }
+        
         @keyframes slideIn {
           from {
             transform: translateX(100%);
