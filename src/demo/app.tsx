@@ -1151,20 +1151,9 @@ function App() {
           border-right: 1px solid #e5e7eb;
         }
         
-        /* Tablet Layout */
-        @media (max-width: 1199px) {
-          .app-container {
-            grid-template-columns: 300px 1fr;
-            grid-template-areas: "header header" "sidebar tools";
-          }
-          
-          .content {
-            display: none;
-          }
-        }
         
         /* Mobile Layout */
-        @media (max-width: 767px) {
+        @media (max-width: 999px) {
           .app-container {
             display: block;
             height: auto;
