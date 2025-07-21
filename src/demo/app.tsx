@@ -1189,8 +1189,26 @@ function App() {
           }
           
           .content {
-            display: block;
-            min-height: 50vh;
+            display: block !important;
+            min-height: auto;
+            flex-direction: column !important;
+            overflow: visible !important;
+          }
+          
+          .content > div {
+            min-height: 60vh !important;
+            flex: none !important;
+            height: auto !important;
+            position: static !important;
+            overflow: visible !important;
+          }
+          
+          .content > div > div {
+            height: 60vh !important;
+          }
+          
+          .content iframe {
+            height: 60vh !important;
           }
           
           header {
