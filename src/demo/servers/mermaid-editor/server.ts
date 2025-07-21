@@ -17,16 +17,12 @@ const DEFAULT_DIAGRAM = `sequenceDiagram
     participant S as Server
     
     Note over C,S: Setup Phase
-    S->>C: SetupHandshake
-    C->>S: SetupHandshakeReply
+    C<<->>S: Setup Handshake
     
     Note over C,S: Transport Phase  
-    S->>C: TransportHandshake
-    C->>S: TransportHandshakeReply
+    C<<->>S: Transport Handshake
     
-    Note over C,S: MCP Messages
-    C->>S: tool_call
-    S->>C: result`;
+    C<<->>S: MCP Messages`;
 
 // --- 1. STATE MANAGEMENT (PURE) ---
 
@@ -104,7 +100,7 @@ async function handleTransportPhase(transport: InnerFrameTransport, getCurrentSt
 
   await server.connect(transport);
   
-  const mermaidModule = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
+  const mermaidModule = await import('mermaid');
   window.mermaid = mermaidModule.default;
   window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
   
