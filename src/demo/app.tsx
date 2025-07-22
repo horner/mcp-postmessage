@@ -38,6 +38,7 @@ interface Server {
     toolName: string;
     result?: string;
     error?: string;
+    imageData?: { data: string; mimeType: string };
     timestamp: Date;
   };
 }
@@ -434,11 +435,29 @@ function App() {
 
     try {
       const result = await server.client.callTool({ name: toolName, arguments: params });
-      const resultText = (Array.isArray(result.content) && result.content.length > 0 && result.content[0]?.text) || JSON.stringify(result, null, 2);
+      
+      // Handle content array with text and/or images
+      let resultText = '';
+      let imageData: { data: string; mimeType: string } | undefined;
+      
+      if (Array.isArray(result.content)) {
+        for (const content of result.content) {
+          if (content.type === 'text') {
+            resultText += content.text + '\n';
+          } else if (content.type === 'image') {
+            imageData = { data: content.data, mimeType: content.mimeType };
+          }
+        }
+        resultText = resultText.trim();
+      }
+      
+      if (!resultText && !imageData) {
+        resultText = JSON.stringify(result, null, 2);
+      }
       
       showToast('success', `${toolName} completed`);
       updateServer(serverId, {
-        lastToolResult: { toolName, result: resultText, timestamp: new Date() }
+        lastToolResult: { toolName, result: resultText, imageData, timestamp: new Date() }
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Tool call failed';
@@ -903,14 +922,73 @@ function App() {
                                 <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>
                                   {lastResult.error ? 'Error:' : 'Result:'}
                                 </div>
-                                <pre style={{ 
-                                  margin: 0, 
-                                  whiteSpace: 'pre-wrap',
-                                  wordBreak: 'break-word',
-                                  fontSize: '0.875rem'
-                                }}>
-                                  {lastResult.error || lastResult.result}
-                                </pre>
+                                
+                                {/* Text result */}
+                                {(lastResult.error || lastResult.result) && (
+                                  <pre style={{ 
+                                    margin: '0 0 0.5rem 0', 
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    fontSize: '0.875rem'
+                                  }}>
+                                    {lastResult.error || lastResult.result}
+                                  </pre>
+                                )}
+                                
+                                {/* Image result */}
+                                {lastResult.imageData && (
+                                  <div style={{ marginBottom: '0.5rem' }}>
+                                    <img 
+                                      src={`data:${lastResult.imageData.mimeType};base64,${lastResult.imageData.data}`}
+                                      alt="Tool result image"
+                                      style={{ 
+                                        maxWidth: '200px', 
+                                        maxHeight: '150px',
+                                        border: '1px solid #e5e7eb',
+                                        borderRadius: '0.375rem',
+                                        display: 'block',
+                                        marginBottom: '0.5rem'
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        try {
+                                          // Convert base64 to blob
+                                          const byteCharacters = atob(lastResult.imageData!.data);
+                                          const byteNumbers = new Array(byteCharacters.length);
+                                          for (let i = 0; i < byteCharacters.length; i++) {
+                                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                          }
+                                          const byteArray = new Uint8Array(byteNumbers);
+                                          const blob = new Blob([byteArray], { type: lastResult.imageData!.mimeType });
+                                          
+                                          // Create blob URL and open in new window
+                                          const blobUrl = URL.createObjectURL(blob);
+                                          const newWindow = window.open(blobUrl, '_blank');
+                                          
+                                          // Clean up the blob URL after a delay
+                                          setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                                        } catch (error) {
+                                          console.error('Failed to open image:', error);
+                                        }
+                                      }}
+                                      style={{
+                                        color: '#3b82f6',
+                                        background: 'transparent',
+                                        border: '1px solid #3b82f6',
+                                        fontSize: '0.75rem',
+                                        padding: '0.25rem 0.5rem',
+                                        borderRadius: '0.25rem',
+                                        cursor: 'pointer'
+                                      }}
+                                      onMouseOver={(e) => e.currentTarget.style.background = '#eff6ff'}
+                                      onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                      🔗 Open image in new window
+                                    </button>
+                                  </div>
+                                )}
+                                
                                 <div style={{ 
                                   marginTop: '0.5rem', 
                                   fontSize: '0.75rem', 

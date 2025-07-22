@@ -107,6 +107,16 @@
       </div>
     </div>
     
+    <div id="gemini-setup" style="margin: 20px 0; padding: 15px; background: #f9f9f9; border: 1px solid #ddd;">
+      <h3 style="margin-top: 0; color: #666;">Optional: Gemini API Key</h3>
+      <p style="font-size: 12px; color: #777; margin: 8px 0;">Enter your Google Gemini API key for AI-powered emotion analysis (optional - will use random analysis if not provided):</p>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <input type="password" id="gemini-api-key" placeholder="Enter your Gemini API key..." style="flex: 1; padding: 8px; border: 1px solid #999; font-family: inherit; font-size: 12px;">
+        <button id="clear-api-key" onclick="clearApiKey()" style="padding: 8px 12px; background: #fff; border: 1px solid #ccc; color: #666; font-size: 11px;">Clear</button>
+      </div>
+      <p style="font-size: 11px; color: #888; margin: 5px 0 0 0;">Your API key will be stored locally in your browser and never shared.</p>
+    </div>
+
     <div style="text-align: center;">
       <button id="test-camera" onclick="testCameraAccess()">Test Camera Access</button>
       <button id="stop-camera" onclick="stopCamera()" disabled>Stop Camera</button>

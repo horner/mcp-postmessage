@@ -484,7 +484,7 @@ The protocol supports range-based version negotiation during the setup handshake
 
 ### Permission Declaration System
 
-Inner frames can declare browser permissions needed during setup and/or transport phases. This enables:
+Inner frames can declare browser permissions needed. This enables:
 
 **Proactive Sandbox Configuration**: The outer frame configures iframe `allow` attributes based on declared permissions:
 ```javascript
@@ -504,7 +504,7 @@ iframe.setAttribute('allow', allowValue);
 - `"microphone"` → `allow="microphone"`
 - `"display-capture"` → `allow="display-capture"`
 
-**Security Note**: Sandbox attributes remain under exclusive control of the outer frame and are not negotiated. 
+**Security Note**: Sandbox attributes remain under exclusive control of the outer frame and are not negotiated. Any "allow" permissions still require explicit user-prompting and approval.
 
 **Production Environment** - Recommended baseline sandbox attributes for cross-origin MCP servers:
 
@@ -597,13 +597,14 @@ The demo client provides a full-featured MCP client interface that:
 
 #### Transport Features by Example
 
-| Transport Feature | Pi Calculator | JSON Analyzer | Mermaid Editor |
-|-------------------|---------------|---------------|----------------|
-| User-facing setup phase | ❌ | ✅ | ❌ |
-| UI visibility at runtime | 🔄 Optional | 🚫 Hidden | 👁️ Visible |
-| Partitioned storage by sessionId | ❌ | ✅ | ❌ |
+| Transport Feature | Pi Calculator | JSON Analyzer | Mermaid Editor | Camera Tester |
+|-------------------|---------------|---------------|----------------|---------------|
+| User-facing setup phase | ❌ | ✅ | ❌ | ✅ |
+| UI visibility at runtime | 🔄 Optional | 🚫 Hidden | 👁️ Visible | 🔄 Optional |
+| Partitioned storage by sessionId | ❌ | ✅ | ❌ | ✅ |
+| Dynamic permissions | ❌ | ❌ | ❌ | ✅ |
 
-The implementation includes three sample servers that demonstrate different protocol features:
+The implementation includes four sample servers that demonstrate different protocol features:
 
 **Pi Calculator Server**
 - **Demonstrates**: No user-facing setup phase, optionally visible UI at runtime (hide/show buttons)
@@ -616,6 +617,10 @@ The implementation includes three sample servers that demonstrate different prot
 **Mermaid Editor Server**
 - **Demonstrates**: No user-facing setup phase, visible UI at runtime (always shown)
 - **Use Case**: Interactive diagram editing requiring constant user visibility
+
+**Camera Tester Server**
+- **Demonstrates**: User-facing setup phase, optionally visible UI at runtime, partitioned storage by sessionId, dynamic permissions (camera access)
+- **Use Case**: Privacy-preserving emotion analysis with on-demand camera access and AI integration
 
 Each server demonstrates the complete protocol flow from setup through active MCP communication, providing practical patterns for implementers.
 

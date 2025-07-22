@@ -11,6 +11,7 @@
     "preview": "cd dist && bun --port 3000 ."
   },
   "dependencies": {
+    "@google/genai": "^1.10.0",
     "@modelcontextprotocol/sdk": "^1.16.0",
     "jsonpath-plus": "^10.3.0",
     "mermaid": "^11",
