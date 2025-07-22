@@ -206,8 +206,8 @@ function App() {
     if (!transportIframeRefs.current.has(serverId)) {
       const iframe = document.createElement('iframe');
       Object.assign(iframe.style, { width: '100%', height: '100%', border: 'none', background: 'white' });
-      iframe.sandbox.add('allow-scripts', 'allow-same-origin', 'allow-forms');
-      iframe.allow = 'geolocation; clipboard-read; clipboard-write';
+      iframe.sandbox.add('allow-scripts', 'allow-same-origin', 'allow-forms', 'allow-storage-access-by-user-activation', 'allow-modals');
+      // Allow attribute will be configured dynamically based on permission requests
       iframe.title = `Server ${serverId} - Transport`;
       transportIframeRefs.current.set(serverId, iframe);
     }
@@ -275,7 +275,8 @@ function App() {
       const windowControl = new IframeWindowControl({
         iframe: setupIframeRef.current,
         setVisible: (visible) => visible && setSetupModalVisible(true),
-        onError: () => showToast('error', 'Failed to load setup page')
+        onError: () => showToast('error', 'Failed to load setup page'),
+        sandboxMode: 'development' // Use development mode for demo
       });
 
       const transport = new OuterFrameTransport(windowControl, {
@@ -330,7 +331,8 @@ function App() {
       const windowControl = new IframeWindowControl({
         iframe,
         setVisible: () => {},
-        onError: () => showToast('error', 'Failed to load server')
+        onError: () => showToast('error', 'Failed to load server'),
+        sandboxMode: 'development' // Use development mode for demo
       });
 
       const transport = new OuterFrameTransport(windowControl, {

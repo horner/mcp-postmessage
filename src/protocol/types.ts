@@ -24,6 +24,37 @@
 // ============================================================================
 
 /**
+ * Permission requirements for browser capabilities
+ */
+export interface PermissionRequirement {
+  /**
+   * Standard permission name from Permissions API / Feature Policy.
+   * Examples: "camera", "microphone", "clipboard-read", "display-capture"
+   */
+  name: string;
+
+  /**
+   * One or more phases during which this permission is needed.
+   * At least one phase must be specified.
+   */
+  phase: ('setup' | 'transport')[];
+
+  /**
+   * Whether this permission is required for core functionality.
+   * - true: Connection may fail without it.
+   * - false: Tool can degrade gracefully.
+   */
+  required: boolean;
+
+  /**
+   * User-facing explanation of why this permission is being requested.
+   * Should be concise and written in plain language.
+   * Example: "To analyze copied text and generate diagrams"
+   */
+  purpose: string;
+}
+
+/**
  * Setup Handshake (Inner Frame → Outer Frame)
  * 
  * Context: The Outer Frame has created a subordinate window (Inner Frame) and
@@ -37,11 +68,26 @@
 export interface SetupHandshakeMessage {
   type: 'MCP_SETUP_HANDSHAKE';
   
-  /** Version of the PostMessage transport protocol this server supports */
-  protocolVersion: '1.0';
+  /**
+   * Minimum protocol version required by the inner frame.
+   * Example: "1.0"
+   */
+  minProtocolVersion: string;
+
+  /**
+   * Maximum protocol version supported by the inner frame.
+   * Example: "2.0"
+   */
+  maxProtocolVersion: string;
   
   /** Whether the server needs to show UI during setup */
   requiresVisibleSetup: boolean;
+
+  /**
+   * Optional permissions this inner frame needs during setup and/or transport phases.
+   * Used by outer frame to configure iframe sandbox and user consent flows.
+   */
+  requestedPermissions?: PermissionRequirement[];
 }
 
 /**
@@ -61,11 +107,12 @@ export interface SetupHandshakeMessage {
 export interface SetupHandshakeReplyMessage {
   type: 'MCP_SETUP_HANDSHAKE_REPLY';
   
-  /** 
-   * Protocol version the client supports - allows for version negotiation
-   * The server can reject if incompatible
+  /**
+   * The agreed-upon protocol version chosen by the outer frame,
+   * which must fall within [minProtocolVersion, maxProtocolVersion].
+   * Must be a valid semantic version string.
    */
-  protocolVersion: '1.0';
+  protocolVersion: string;
   
   /** 
    * Unique identifier for this connection instance.
@@ -129,7 +176,7 @@ export interface SetupCompleteMessage {
   
   /** If status is 'error', details about what went wrong */
   error?: {
-    code: 'USER_CANCELLED' | 'AUTH_FAILED' | 'TIMEOUT' | 'CONFIG_ERROR';
+    code: 'USER_CANCELLED' | 'AUTH_FAILED' | 'TIMEOUT' | 'CONFIG_ERROR' | 'VERSION_MISMATCH' | 'INSUFFICIENT_PERMISSIONS';
     message: string;
   };
 }
@@ -307,4 +354,30 @@ export function isTransportMessage(message: any): message is TransportMessage {
 /** Check if a message is an MCP message wrapper */
 export function isMCPMessage(message: any): message is MCPMessage {
   return message?.type === 'MCP_MESSAGE';
+}
+
+// ============================================================================
+// VERSION UTILITIES
+// ============================================================================
+
+/**
+ * Check if a version falls within a supported range using semantic versioning
+ */
+export function isVersionInRange(version: string, min: string, max: string): boolean {
+  // Simple string comparison for now - in production would use semver library
+  return version >= min && version <= max;
+}
+
+/**
+ * Select the highest compatible version from client and server ranges
+ */
+export function negotiateVersion(
+  serverMin: string, 
+  serverMax: string, 
+  clientSupportedVersions: string[]
+): string | null {
+  const compatible = clientSupportedVersions.filter(v => 
+    isVersionInRange(v, serverMin, serverMax)
+  );
+  return compatible.length > 0 ? compatible.sort().reverse()[0] : null;
 }

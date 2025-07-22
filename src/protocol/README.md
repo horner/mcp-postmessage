@@ -136,11 +136,54 @@ All protocol messages include a `type` field with prefix `MCP_`. The protocol de
 export interface SetupHandshakeMessage {
   type: 'MCP_SETUP_HANDSHAKE';
   
-  /** Version of the PostMessage transport protocol this server supports */
-  protocolVersion: '1.0';
+  /**
+   * Minimum protocol version required by the inner frame.
+   * Example: "1.0"
+   */
+  minProtocolVersion: string;
+
+  /**
+   * Maximum protocol version supported by the inner frame.
+   * Example: "2.0"
+   */
+  maxProtocolVersion: string;
   
   /** Whether the server needs to show UI during setup */
   requiresVisibleSetup: boolean;
+
+  /**
+   * Optional permissions this inner frame needs during setup and/or transport phases.
+   * Used by outer frame to configure iframe sandbox and user consent flows.
+   */
+  requestedPermissions?: PermissionRequirement[];
+}
+
+export interface PermissionRequirement {
+  /**
+   * Standard permission name from Permissions API / Feature Policy.
+   * Examples: "camera", "microphone", "clipboard-read", "display-capture"
+   */
+  name: string;
+
+  /**
+   * One or more phases during which this permission is needed.
+   * At least one phase must be specified.
+   */
+  phase: ('setup' | 'transport')[];
+
+  /**
+   * Whether this permission is required for core functionality.
+   * - true: Connection may fail without it.
+   * - false: Tool can degrade gracefully.
+   */
+  required: boolean;
+
+  /**
+   * User-facing explanation of why this permission is being requested.
+   * Should be concise and written in plain language.
+   * Example: "To analyze copied text and generate diagrams"
+   */
+  purpose: string;
 }
 ```
 
@@ -158,11 +201,12 @@ export interface SetupHandshakeMessage {
 export interface SetupHandshakeReplyMessage {
   type: 'MCP_SETUP_HANDSHAKE_REPLY';
   
-  /** 
-   * Protocol version the client supports - allows for version negotiation
-   * The server can reject if incompatible
+  /**
+   * The agreed-upon protocol version chosen by the outer frame,
+   * which must fall within [minProtocolVersion, maxProtocolVersion].
+   * Must be a valid semantic version string.
    */
-  protocolVersion: '1.0';
+  protocolVersion: string;
   
   /** 
    * Unique identifier for this connection instance.
@@ -224,7 +268,7 @@ export interface SetupCompleteMessage {
   
   /** If status is 'error', details about what went wrong */
   error?: {
-    code: 'USER_CANCELLED' | 'AUTH_FAILED' | 'TIMEOUT' | 'CONFIG_ERROR';
+    code: 'USER_CANCELLED' | 'AUTH_FAILED' | 'TIMEOUT' | 'CONFIG_ERROR' | 'VERSION_MISMATCH' | 'INSUFFICIENT_PERMISSIONS';
     message: string;
   };
 }
@@ -424,6 +468,63 @@ After handshakes complete, MCP protocol messages are exchanged using the MCPMess
 
 The MCPMessage wrapper allows the transport to distinguish MCP protocol messages from transport control messages. The payload contains the complete JSON-RPC 2.0 message as defined by the MCP specification.
 
+### Version Negotiation
+
+The protocol supports range-based version negotiation during the setup handshake to enable backward and forward compatibility:
+
+1. **Inner Frame declares range**: Sends `minProtocolVersion` and `maxProtocolVersion` in `SetupHandshakeMessage`
+2. **Outer Frame selects version**: Chooses a compatible version within the range and responds with `protocolVersion` in `SetupHandshakeReplyMessage`  
+3. **Version validation**: Both parties validate the agreed version using semantic versioning rules
+4. **Compatibility check**: If no compatible version exists, the outer frame rejects the handshake with `VERSION_MISMATCH` error
+
+**Example Version Negotiation:**
+- Inner Frame supports: `minProtocolVersion: "1.0"`, `maxProtocolVersion: "1.0"`
+- Outer Frame supports: `1.0` through `1.0`  
+- Agreed version: `"1.0"` (current protocol version)
+
+### Permission Declaration System
+
+Inner frames can declare browser permissions needed during setup and/or transport phases. This enables:
+
+**Proactive Sandbox Configuration**: The outer frame configures iframe `allow` attributes based on declared permissions:
+```javascript
+const allowValue = requestedPermissions
+  .map(p => p.name)
+  .join('; ');
+iframe.setAttribute('allow', allowValue);
+```
+
+**Transparent User Consent**: Outer frames can display permission requests with clear explanations before embedding the inner frame.
+
+**Least Privilege Access**: Only grant permissions that are explicitly declared and justified.
+
+**Permission Mapping**: Each `PermissionRequirement.name` maps directly to iframe Feature Policy values:
+- `"clipboard-read"` → `allow="clipboard-read"`
+- `"camera"` → `allow="camera"`  
+- `"microphone"` → `allow="microphone"`
+- `"display-capture"` → `allow="display-capture"`
+
+**Security Note**: Sandbox attributes remain under exclusive control of the outer frame and are not negotiated. 
+
+**Production Environment** - Recommended baseline sandbox attributes for cross-origin MCP servers:
+
+```javascript
+iframe.sandbox.value = 'allow-scripts allow-forms allow-storage-access-by-user-activation allow-modals';
+```
+
+**Testing/Development Environment** - When inner frame is same-origin and requires persistent storage:
+
+```javascript
+iframe.sandbox.value = 'allow-scripts allow-same-origin allow-forms allow-storage-access-by-user-activation allow-modals';
+```
+
+⚠️ **Security Warning**: `allow-same-origin` combined with `allow-scripts` significantly reduces sandbox effectiveness and should only be used in testing environments or when the inner frame is served from a trusted same-origin source that requires localStorage access.
+
+Optional additions based on server needs:
+- `allow-popups` → if the server opens new windows
+- `allow-downloads` → if the server initiates file downloads  
+- `allow-top-navigation-by-user-activation` → if the server needs to navigate the parent window
+
 ### Session Management
 
 Session management is orchestrated by the **MCP Client**, which generates and provides the `sessionId`. The **MCP Server** uses this ID to scope its persistent storage, ensuring data isolation between connections.
@@ -536,4 +637,4 @@ Each server demonstrates the complete protocol flow from setup through active MC
 
 ### Open Security Questions
 
-1. Should the protocol include capability requirements/negotiation for sandbox restrictions?
+The protocol addresses permission declaration and version negotiation. Additional areas for future consideration include standardized security profiles and cross-origin policy coordination.

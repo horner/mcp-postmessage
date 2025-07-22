@@ -10,5 +10,9 @@
   {
     "name": "JSON Analyzer",
     "url": "./servers/json-analyzer"
+  },
+  {
+    "name": "Camera Tester",
+    "url": "./servers/camera-tester"
   }
 ]

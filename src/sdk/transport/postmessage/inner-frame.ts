@@ -19,9 +19,11 @@ import {
   TransportHandshakeMessage,
   TransportHandshakeReplyMessage,
   MCPMessage,
+  PermissionRequirement,
   isMCPMessage,
   isSetupMessage,
-  isTransportMessage
+  isTransportMessage,
+  isVersionInRange
 } from '$protocol/types.js';
 import { createLogger } from '$sdk/utils/logger.js';
 import { withTimeout } from '$sdk/utils/helpers.js';
@@ -173,6 +175,9 @@ interface TransportHandshakeResult {
 
 export interface SetupConfig {
   requiresVisibleSetup: boolean;
+  minProtocolVersion?: string;
+  maxProtocolVersion?: string;
+  requestedPermissions?: PermissionRequirement[];
 }
 
 export interface SetupResult {
@@ -305,14 +310,21 @@ export class InnerFrameTransport implements Transport {
           if (!isSetupMessage(data)) return;
 
           if (data.type === 'MCP_SETUP_HANDSHAKE_REPLY' && !handshakeComplete) {
+            console.log('[INNER-FRAME] Received setup handshake reply');
             const reply = data as SetupHandshakeReplyMessage;
             
-            if (reply.protocolVersion !== '1.0') {
+            const minVersion = this.setupConfig?.minProtocolVersion || '1.0';
+            const maxVersion = this.setupConfig?.maxProtocolVersion || '1.0';
+            
+            console.log('[INNER-FRAME] Checking version compatibility:', reply.protocolVersion, 'vs', minVersion, '-', maxVersion);
+            
+            if (!isVersionInRange(reply.protocolVersion, minVersion, maxVersion)) {
               cleanup();
-              reject(new Error(`Incompatible protocol version: ${reply.protocolVersion}`));
+              reject(new Error(`Incompatible protocol version: ${reply.protocolVersion}. Expected range: ${minVersion}-${maxVersion}`));
               return;
             }
 
+            console.log('[INNER-FRAME] Setup handshake completed, resolving');
             handshakeComplete = true;
             cleanup();
             resolve({
@@ -327,8 +339,10 @@ export class InnerFrameTransport implements Transport {
 
         this.control.postMessage({
           type: 'MCP_SETUP_HANDSHAKE',
-          protocolVersion: '1.0',
-          requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false
+          minProtocolVersion: this.setupConfig?.minProtocolVersion || '1.0',
+          maxProtocolVersion: this.setupConfig?.maxProtocolVersion || '1.0',
+          requiresVisibleSetup: this.setupConfig?.requiresVisibleSetup || false,
+          requestedPermissions: this.setupConfig?.requestedPermissions || []
         });
       }),
       30000,

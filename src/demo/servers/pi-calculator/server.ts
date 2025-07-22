@@ -176,7 +176,11 @@ async function handleTransportPhase(transport: InnerFrameTransport) {
 async function main() {
   if (!isInWindowContext()) throw new Error('π needs a window');
 
-  const transport = new InnerFrameTransport(new PostMessageInnerControl(['*']), { requiresVisibleSetup: false });
+  const transport = new InnerFrameTransport(new PostMessageInnerControl(['*']), { 
+    requiresVisibleSetup: false,
+    minProtocolVersion: '1.0',
+    maxProtocolVersion: '1.0'
+  });
 
   if (getServerPhase() === 'setup') {
     await handleSetupPhase(transport);

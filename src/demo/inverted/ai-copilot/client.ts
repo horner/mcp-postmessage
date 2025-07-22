@@ -183,7 +183,11 @@ class CopilotApp {
       const windowControl = new PostMessageInnerControl(['*']); // In production, specify parent origin
       
       // Create transport for inner frame
-      this.transport = new InnerFrameTransport(windowControl);
+      this.transport = new InnerFrameTransport(windowControl, {
+        requiresVisibleSetup: false,
+        minProtocolVersion: '1.0',
+        maxProtocolVersion: '1.0'
+      });
       
       // Prepare to connect
       await this.transport.prepareToConnect();

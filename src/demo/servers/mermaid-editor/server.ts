@@ -120,7 +120,11 @@ async function main() {
 
   const transport = new InnerFrameTransport(
     new PostMessageInnerControl(['*']),
-    { requiresVisibleSetup: false }
+    { 
+      requiresVisibleSetup: false,
+      minProtocolVersion: '1.0',
+      maxProtocolVersion: '1.0'
+    }
   );
 
   const phase = getServerPhase();

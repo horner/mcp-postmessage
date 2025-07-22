@@ -13,17 +13,18 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { Transport, TransportSendOptions } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { 
   SetupCompleteMessage,
-  MCPMessage,
-  isMCPMessage 
-} from '$protocol/types.js';
-import { 
   SetupHandshakeMessage,
   SetupHandshakeReplyMessage,
   TransportHandshakeMessage,
   TransportHandshakeReplyMessage,
   TransportAcceptedMessage,
+  MCPMessage,
+  PermissionRequirement,
+  isMCPMessage,
   isSetupMessage,
-  isTransportMessage
+  isTransportMessage,
+  isVersionInRange,
+  negotiateVersion
 } from '$protocol/types.js';
 import { withTimeout } from '$sdk/utils/helpers.js';
 import { createLogger } from '$sdk/utils/logger.js';
@@ -95,6 +96,19 @@ export interface IframeWindowControlOptions {
    * Optional callback for errors
    */
   onError?: (error: Error) => void;
+
+  /**
+   * Optional callback when permissions are requested during setup
+   * Returns true to approve the permission request
+   */
+  onPermissionRequest?: (permissions: PermissionRequirement[]) => Promise<boolean>;
+
+  /**
+   * Sandbox mode configuration
+   * - 'secure': Production mode, no allow-same-origin (recommended)
+   * - 'development': Testing mode, includes allow-same-origin for localStorage access
+   */
+  sandboxMode?: 'secure' | 'development';
 }
 
 /**
@@ -106,6 +120,8 @@ export class IframeWindowControl implements OuterWindowControl {
   private onNavigateFn?: (url: string) => void;
   private onLoadFn?: () => void;
   private onErrorFn?: (error: Error) => void;
+  private onPermissionRequestFn?: (permissions: PermissionRequirement[]) => Promise<boolean>;
+  private sandboxMode: 'secure' | 'development';
   
   private messageHandlers = new Set<(event: MessageEvent) => void>();
   private globalMessageHandler?: (event: MessageEvent) => void;
@@ -118,6 +134,11 @@ export class IframeWindowControl implements OuterWindowControl {
     this.onNavigateFn = options.onNavigate;
     this.onLoadFn = options.onLoad;
     this.onErrorFn = options.onError;
+    this.onPermissionRequestFn = options.onPermissionRequest;
+    this.sandboxMode = options.sandboxMode || 'secure'; // Default to secure mode
+    
+    // Apply baseline sandbox attributes
+    this.configureBaseSandbox();
   }
 
   async navigate(url: string): Promise<void> {
@@ -212,6 +233,73 @@ export class IframeWindowControl implements OuterWindowControl {
 
   setVisible(visible: boolean): void {
     this.setVisibleFn(visible);
+  }
+
+  /**
+   * Configure baseline sandbox attributes for MCP functionality
+   */
+  private configureBaseSandbox(): void {
+    // Baseline sandbox attributes for MCP servers
+    const baseAttrs = [
+      'allow-scripts',
+      'allow-forms',
+      'allow-storage-access-by-user-activation',
+      'allow-modals'
+    ];
+    
+    // Only add allow-same-origin in development mode for localStorage access
+    if (this.sandboxMode === 'development') {
+      baseAttrs.push('allow-same-origin');
+    }
+    
+    this.iframe.sandbox.add(...baseAttrs);
+    
+    if (this.sandboxMode === 'development') {
+      console.warn('[IFRAME-CONTROL] Using development sandbox mode with allow-same-origin. Use "secure" mode in production.');
+    }
+  }
+
+  /**
+   * Configure iframe permissions based on permission requirements
+   */
+  async configurePermissions(permissions: PermissionRequirement[]): Promise<boolean> {
+    if (permissions.length === 0) return true;
+
+    // Request permission approval
+    const approved = this.onPermissionRequestFn 
+      ? await this.onPermissionRequestFn(permissions)
+      : this.approveKnownPermissions(permissions);
+
+    if (!approved) return false;
+
+    // Configure iframe allow attributes
+    const allowValue = permissions
+      .map(p => p.name)
+      .join('; ');
+    
+    if (allowValue) {
+      this.iframe.setAttribute('allow', allowValue);
+    }
+
+    return true;
+  }
+
+  /**
+   * Default permission approval - silently approve known safe permissions
+   */
+  private approveKnownPermissions(permissions: PermissionRequirement[]): boolean {
+    const knownSafePermissions = [
+      'clipboard-read',
+      'clipboard-write', 
+      'camera',
+      'microphone',
+      'display-capture',
+      'screen-wake-lock',
+      'geolocation'
+    ];
+
+    // Approve if all requested permissions are in our known safe list
+    return permissions.every(p => knownSafePermissions.includes(p.name));
   }
 
   destroy(): void {
@@ -577,39 +665,85 @@ export class OuterFrameTransport implements Transport {
 
   /** Perform setup handshake */
   private async performSetupHandshake(): Promise<boolean> {
-    return new Promise<boolean>((resolve, reject) => {
+    return withTimeout(
+      new Promise<boolean>((resolve, reject) => {
       let handshakeComplete = false;
 
       const unsubscribe = this.windowControl.onMessage((event) => {
         if (!isSetupMessage(event.data)) return;
 
         const message = event.data;
+        console.log('[OUTER-FRAME] Received setup message:', message.type, 'complete:', handshakeComplete);
+        
         if (message.type === 'MCP_SETUP_HANDSHAKE' && !handshakeComplete) {
           const handshake = message as SetupHandshakeMessage;
           
-          // Check protocol version
-          if (handshake.protocolVersion !== '1.0') {
-            cleanup();
-            reject(new Error(`Incompatible protocol version: ${handshake.protocolVersion}`));
-            return;
-          }
+          // Process handshake asynchronously to handle permission requests
+          (async () => {
+            try {
+              console.log('[OUTER-FRAME] Starting async handshake processing');
+              
+              // Check version compatibility and negotiate
+              const supportedVersions = ['1.0']; // Client supported versions
+              console.log('[OUTER-FRAME] Server version range:', handshake.minProtocolVersion, '-', handshake.maxProtocolVersion);
+              
+              const negotiatedVersion = negotiateVersion(
+                handshake.minProtocolVersion, 
+                handshake.maxProtocolVersion, 
+                supportedVersions
+              );
+              
+              console.log('[OUTER-FRAME] Negotiated version:', negotiatedVersion);
+              
+              if (!negotiatedVersion) {
+                cleanup();
+                reject(new Error(`No compatible protocol version. Server supports: ${handshake.minProtocolVersion}-${handshake.maxProtocolVersion}, Client supports: ${supportedVersions.join(', ')}`));
+                return;
+              }
 
-          // Send reply
-          const reply: SetupHandshakeReplyMessage = {
-            type: 'MCP_SETUP_HANDSHAKE_REPLY',
-            protocolVersion: '1.0',
-            sessionId: this.options.sessionId
-          };
+              // Handle permission requests
+              console.log('[OUTER-FRAME] Checking permissions:', handshake.requestedPermissions?.length || 0, 'requested');
+              if (handshake.requestedPermissions && handshake.requestedPermissions.length > 0) {
+                // For iframe window control, configure permissions
+                if (this.windowControl instanceof IframeWindowControl) {
+                  console.log('[OUTER-FRAME] Configuring permissions...');
+                  const permissionsApproved = await this.windowControl.configurePermissions(handshake.requestedPermissions);
+                  console.log('[OUTER-FRAME] Permissions approved:', permissionsApproved);
+                  if (!permissionsApproved) {
+                    cleanup();
+                    reject(new Error('Required permissions were not approved'));
+                    return;
+                  }
+                }
+              }
 
-          this.windowControl.postMessage(reply, '*');
-          handshakeComplete = true;
-          cleanup();
-          resolve(handshake.requiresVisibleSetup);
+              // Send reply
+              console.log('[OUTER-FRAME] Sending handshake reply...');
+              const reply: SetupHandshakeReplyMessage = {
+                type: 'MCP_SETUP_HANDSHAKE_REPLY',
+                protocolVersion: negotiatedVersion,
+                sessionId: this.options.sessionId
+              };
+
+              this.windowControl.postMessage(reply, '*');
+              handshakeComplete = true;
+              cleanup();
+              console.log('[OUTER-FRAME] Setup handshake completed successfully');
+              resolve(handshake.requiresVisibleSetup);
+            } catch (error) {
+              console.error('[OUTER-FRAME] Setup handshake error:', error);
+              cleanup();
+              reject(new Error(`Setup handshake failed: ${error}`));
+            }
+          })();
         }
       });
 
       const cleanup = () => unsubscribe();
-    });
+      }),
+      30000,
+      'Setup handshake timeout'
+    );
   }
 
   /** Perform transport handshake */
