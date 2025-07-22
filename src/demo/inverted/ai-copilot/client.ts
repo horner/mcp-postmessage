@@ -295,7 +295,7 @@ Try asking one of these questions, or click the quick action buttons below!`;
       });
 
       // Extract text content from the result
-      if (result.content && result.content.length > 0) {
+      if (Array.isArray(result.content) && result.content.length > 0) {
         return result.content[0].text || 'No response received';
       }
       

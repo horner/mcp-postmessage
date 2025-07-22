@@ -432,7 +432,7 @@ function App() {
 
     try {
       const result = await server.client.callTool({ name: toolName, arguments: params });
-      const resultText = (result.content?.[0]?.text) || JSON.stringify(result, null, 2);
+      const resultText = (Array.isArray(result.content) && result.content.length > 0 && result.content[0]?.text) || JSON.stringify(result, null, 2);
       
       showToast('success', `${toolName} completed`);
       updateServer(serverId, {
@@ -793,7 +793,7 @@ function App() {
                   {server.tools && server.tools.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                       {server.tools.map(tool => {
-                        const currentParams = getToolParams(server.id, tool.name, tool);
+                        const currentParams = getToolParams(server.id, tool.name);
                         const lastResult = server.lastToolResult?.toolName === tool.name ? server.lastToolResult : null;
                         
                         return (

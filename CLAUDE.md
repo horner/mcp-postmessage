@@ -1,27 +1,104 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude when working with code in this repository. It covers the project's architecture, key concepts, development patterns, and common tasks.
 
-## Project Overview
+## 1. Project Overview
 
-This is a reference implementation of a PostMessage transport for the Model Context Protocol (MCP) that enables zero-installation, browser-native MCP servers. The transport allows MCP servers to run directly in browser contexts (iframes/popups) and communicate with clients using the `window.postMessage` API.
+This is a reference implementation of a **PostMessage transport for the Model Context Protocol (MCP)**. Its primary purpose is to enable secure, zero-installation MCP servers that run directly in a web browser (within an `<iframe>` or popup window).
 
-## Development Commands
+The core innovation is leveraging the browser's native `window.postMessage` API for communication, which allows for:
+- **Zero Installation**: Servers are just URLs, eliminating security risks and setup friction for users.
+- **Privacy-First Processing**: Sensitive data can be processed on the user's machine within the browser sandbox, without being sent to a remote server.
+- **Rich Interactive UIs**: MCP servers can provide full graphical user interfaces, not just text-based tool responses.
+- **Inverted Architectures**: Applications can provide contextual data as tools to an embedded AI client, not just the other way around.
 
-### Running the Demo
+## 2. Core Concepts
+
+Understanding the separation between the **Window Hierarchy** and **MCP Roles** is critical to understanding this project.
+
+### 2.1. Window Hierarchy vs. MCP Roles
+
+The transport is designed around two independent sets of roles:
+
+1.  **Window Hierarchy Roles (The "Physical" Layer)**: This describes the browser window relationship.
+    *   **`Outer Frame`**: The main, controlling window. It embeds and manages the other window. It uses `OuterFrameTransport`.
+    *   **`Inner Frame`**: The subordinate, controlled window (e.g., an `<iframe>` or popup). It uses `InnerFrameTransport`.
+
+2.  **MCP Protocol Roles (The "Logical" Layer)**: This describes the roles defined by the Model Context Protocol itself.
+    *   **MCP Client**: The entity that calls tools (e.g., `client.callTool()`).
+    *   **MCP Server**: The entity that provides tools (e.g., `server.registerTool()`).
+
+This separation allows for two powerful architectural patterns.
+
+### 2.2. Supported Architectures
+
+#### A. Standard Architecture (Client-in-Control)
+
+This is the most common pattern, where a primary application consumes tools from an embedded service.
+
+-   **Outer Frame**: **MCP Client** (e.g., the Demo Client `demo-client/app.tsx`)
+-   **Inner Frame**: **MCP Server** (e.g., Pi Calculator, JSON Analyzer)
+-   **Data Flow**: The Outer Frame calls tools provided by the Inner Frame.
+-   **Example Use Case**: A chat application embeds a diagramming tool. The chat app is the client, the diagramming tool is the server.
+
+#### B. Inverted Architecture (Server-in-Control)
+
+This powerful pattern allows a primary application to securely provide its own context as tools to an embedded AI assistant.
+
+-   **Outer Frame**: **MCP Server** (e.g., the User Dashboard `demo/inverted/server.ts`)
+-   **Inner Frame**: **MCP Client** (e.g., the AI Copilot `demo/inverted/ai-copilot/client.ts`)
+-   **Data Flow**: The Inner Frame calls tools provided by the Outer Frame to access application data.
+-   **Example Use Case**: A user dashboard with sensitive data embeds a sandboxed AI copilot. The dashboard acts as an MCP server, providing tools like `getCurrentUser()` and `getSystemHealth()`. The embedded copilot is an MCP client that calls these tools to answer user questions.
+
+| Transport Feature         | Standard Architecture      | Inverted Architecture   |
+|:--------------------------|:---------------------------|:------------------------|
+| **Outer Frame Role**      | MCP Client                 | MCP Server              |
+| **Inner Frame Role**      | MCP Server                 | MCP Client              |
+| **Who provides tools?**   | Inner Frame                | Outer Frame             |
+| **Who calls tools?**      | Outer Frame                | Inner Frame             |
+
+## 3. Two-Phase Protocol
+
+The transport uses a two-phase connection model, orchestrated by URL hash parameters.
+
+1.  **Setup Phase (`#setup` URL hash)**: A one-time configuration step when a server is first added. This is for authentication, setting API keys, user preferences, etc. The server can present a UI for this. The results (display name, visibility preferences) are persisted by the client.
+2.  **Transport Phase (no `#setup` hash)**: The normal, ongoing communication phase. The server is loaded without the setup hash, performs a transport handshake, and then exchanges standard MCP JSON-RPC messages.
+
+A server must implement logic for both phases, typically by using the `getServerPhase()` utility.
+
+## 4. Directory & Code Architecture
+
+-   `src/protocol/`: The formal protocol specification (`README.md`) and TypeScript type definitions (`types.ts`). **This is the source of truth.**
+-   `src/sdk/`: The core transport SDK.
+    -   `transport/postmessage/outer-frame.ts`: Logic for the **controlling window** (`OuterFrameTransport`, `IframeWindowControl`).
+    -   `transport/postmessage/inner-frame.ts`: Logic for the **subordinate window** (`InnerFrameTransport`, `PostMessageInnerControl`).
+    -   `utils/`: Helper functions (`getServerPhase`, `generateSessionId`) and the structured `Logger`.
+-   `demo-client/`: The React-based **Standard Architecture** demo client.
+-   `servers/`: Example **Standard Architecture** MCP servers (Pi Calculator, JSON Analyzer, Mermaid Editor).
+-   `demo/inverted/`: The **Inverted Architecture** demo.
+    -   `index.html` / `server.ts`: The User Dashboard (Outer Frame, MCP Server).
+    -   `ai-copilot/`: The AI Copilot (Inner Frame, MCP Client).
+
+## 5. Development
+
+### 5.1. Key Commands
+
 ```bash
-# Start both demo client and Pi calculator server
-bun run demo
+# Install all dependencies
+bun install
 
-# Start only the demo client (port 3000)
+# Run the complete standard demo (client + all servers)
+bun run dev
+
+# Run just the standard demo client
 bun run demo:client
 
-# Start only the Pi calculator server (port 3001)
+# Run just the Pi Calculator server
 bun run demo:pi
-```
 
-### Development Tasks
-```bash
+# Run the inverted architecture demo
+bun run demo:inverted
+
 # Type checking
 bun run type-check
 
@@ -29,182 +106,130 @@ bun run type-check
 bun run build
 ```
 
-## Core Architecture
+### 5.2. Testing Strategy
 
-### Two-Phase Protocol Design
-The transport implements a sophisticated two-phase connection model:
+The demo applications serve as the primary end-to-end testing environment.
 
-1. **Setup Phase** (`#setup` URL parameter): One-time configuration when adding a server
-   - Handles authentication, API keys, user preferences
-   - Server can show UI for configuration
-   - Results in server title and visibility preferences
+1.  **Standard Architecture**: Run `bun run dev`. Use the client at `http://localhost:3000` to add, configure, connect to, and call tools on the example servers. Test all visibility modes (hidden, optional, required).
+2.  **Inverted Architecture**: Run `bun run demo:inverted`. Open `http://localhost:4000`. Verify the embedded AI copilot connects and can call tools (`getCurrentUser`, etc.) provided by the parent dashboard.
 
-2. **Transport Phase** (normal URL): Ongoing MCP communication
-   - Standard MCP JSON-RPC messages wrapped in `MCPMessage` envelope
-   - Maintains session state and handles tool calls
-   - Supports real-time UI updates
+## 6. Protocol Deep Dive
 
-### Directory Structure
-- `src/client/`: Client-side transport implementation
-  - `transport.ts`: Main client transport + setup manager
-  - `window-control.ts`: Iframe/popup window abstraction
-- `src/server/`: Server-side transport implementation
-  - `transport.ts`: Server transport + setup handler
-- `src/types/`: TypeScript interfaces and message definitions
-- `src/utils/`: Helper functions and utilities
-- `demo-client/`: React demo client application
-- `servers/`: Example MCP servers (Pi calculator, etc.)
+The protocol defines 8 message types. The flow is critical for preventing race conditions and ensuring security.
 
-### Key Components
+**Key Principle**: The Outer Frame must always start listening for messages *before* navigating the Inner Frame to its URL.
 
-#### Client Side
-- `PostMessageTransport`: Main transport for MCP communication
-- `PostMessageSetupManager`: Handles server setup/configuration
-- `IframeWindowControl`/`PopupWindowControl`: Window management abstractions
-- React demo client with full server management UI
+### 6.1. Setup Phase Flow
 
-#### Server Side
-- `PostMessageServerTransport`: Main transport for servers  
-- `PostMessageSetupHandler`: Handles setup phase
-- Auto-detection of setup vs transport phases via URL hash parameters
+1.  **`SetupHandshake` (Inner → Outer)**: The Inner Frame is loaded with `#setup`. It sends this message to `targetOrigin: '*'`, announcing its readiness and whether it needs a visible UI for setup (`requiresVisibleSetup`).
+2.  **`SetupHandshakeReply` (Outer → Inner)**: The Outer Frame replies with the `sessionId` for this connection. **Security**: The Inner Frame receives this, validates `event.origin` against its allowlist, and **pins the origin** for all future communication in this session.
+3.  **`SetupComplete` (Inner → Outer)**: After any internal setup logic (e.g., user input), the Inner Frame sends this message with the final configuration (`displayName`, `transportVisibility`, etc.) to the Outer Frame, which persists it.
 
-## Protocol Message Types
+### 6.2. Transport Phase Flow
 
-The protocol defines 8 message types across two phases:
+1.  **`TransportHandshake` (Inner → Outer)**: The Inner Frame is loaded *without* `#setup`. It sends this to `targetOrigin: '*'` to initiate a connection.
+2.  **`TransportHandshakeReply` (Outer → Inner)**: The Outer Frame responds with the `sessionId` associated with this server's URL. **Security**: The Inner Frame again validates and **pins `event.origin`**.
+3.  **`TransportAccepted` (Inner → Outer)**: The Inner Frame confirms the handshake is complete.
+4.  **`MCPMessage` (Bidirectional)**: Standard MCP JSON-RPC messages are now exchanged, wrapped in an `MCPMessage` envelope. Both sides use their pinned origins.
+5.  **`SetupRequired` (Inner → Outer)**: Optional message sent by the Inner Frame if it detects a need for re-authentication or re-configuration (e.g., expired token).
 
-### Setup Phase
-1. `SetupHandshake` (Server → Client): Server announces readiness
-2. `SetupHandshakeReply` (Client → Server): Client responds with protocol version
-3. `SetupComplete` (Server → Client): Setup finished with results
+## 7. Security Model
 
-### Transport Phase
-4. `TransportHandshake` (Server → Client): Server ready for MCP communication
-5. `TransportHandshakeReply` (Client → Server): Client responds with session ID
-6. `TransportAccepted` (Server → Client): Connection established
-7. `MCPMessage` (Bidirectional): Wraps standard MCP JSON-RPC messages
-8. `SetupRequired` (Server → Client): Runtime request for re-authentication
+Security relies entirely on the browser's `postMessage` guarantees and correct implementation.
 
-## Security Model
+-   **Origin Validation**: The **only trusted source of sender identity is `event.origin`** from the `MessageEvent`. Never trust origin information in the message payload.
+-   **Origin Allowlist**: The MCP Server (whether in the Inner or Outer Frame) MUST maintain an explicit list of allowed origins for its MCP Client.
+-   **Origin Pinning**: The Inner Frame MUST use `targetOrigin: '*'` for its very first message in each phase. Upon receiving the first valid reply from the Outer Frame, it MUST "pin" `event.origin` and use that specific origin for all subsequent `postMessage` calls. This is implemented in `PostMessageInnerControl`.
+-   **Iframe Sandboxing**: The Outer Frame should use restrictive `sandbox` attributes on iframes (e.g., `allow-scripts allow-same-origin allow-forms`) to limit the capabilities of embedded content.
 
-- **Origin Validation**: All messages validated using `event.origin` from MessageEvent
-- **Origin Pinning**: Server pins client origin after initial handshake
-- **Target Origin Rules**: First message uses `'*'`, subsequent messages use pinned origins
-- **Sandbox Attributes**: Iframes should include appropriate sandbox restrictions
+## 8. How to Create a New Server (Standard Architecture)
 
-## Server Visibility Control
-
-Servers specify UI visibility requirements via `transportVisibility`:
-- `required`: Must be visible (e.g., interactive diagram editors)
-- `optional`: User can choose (e.g., debug views, real-time logs)
-- `hidden`: Background operation only (most common)
-
-## Creating New Servers
-
-1. Create server directory in `servers/`
-2. Implement HTML entry point with iframe-appropriate styling
-3. Use `getServerPhase()` to detect setup vs transport phase
-4. Setup phase: Use `PostMessageSetupHandler` with `onSetup` callback
-5. Transport phase: Use `PostMessageServerTransport` with MCP server
-6. Register MCP tools using `server.registerTool()`
+1.  **Create Directory**: Add a new directory in `servers/`, e.g., `servers/my-new-server/`.
+2.  **Create `index.html` and `server.ts`**:
+3.  **Implement Phase Logic in `server.ts`**:
+    *   Use `getServerPhase()` to detect if you are in `'setup'` or `'transport'`.
+    *   Create an `InnerFrameTransport` instance.
+    *   **If `phase === 'setup'`**:
+        *   Call `transport.prepareSetup()`.
+        *   (Optional) Present a UI for configuration.
+        *   Use the `sessionId` from the transport to scope any data saved to `localStorage`.
+        *   Call `transport.completeSetup()` with the results (`displayName`, `transportVisibility`, etc.).
+    *   **If `phase === 'transport'`**:
+        *   Call `transport.prepareToConnect()`.
+        *   Use the `sessionId` to load any previously saved configuration.
+        *   Create an `McpServer` instance.
+        *   Register your tools using `server.registerTool()`.
+        *   Connect the server: `await server.connect(transport)`.
+        *   (Optional) Implement the runtime UI.
+4.  **Add to Demo**: Add the server's URL to `demo-client/servers.json` to make it appear in the demo client's examples.
 
 ### Example Server Structure
+
 ```typescript
+// in servers/my-new-server/server.ts
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { InnerFrameTransport, PostMessageInnerControl } from '$sdk/transport/postmessage/index.js';
+import { getServerPhase } from '$sdk/utils/helpers.js';
+import { z } from 'zod';
+
 const phase = getServerPhase();
+const transport = new InnerFrameTransport(
+  new PostMessageInnerControl(['http://localhost:3000']), // IMPORTANT: Use real client origin in production
+  { requiresVisibleSetup: true } // Set to true if setup requires a UI
+);
 
 if (phase === 'setup') {
-  const setupHandler = new PostMessageSetupHandler({
-    allowedOrigins: ['http://localhost:3000'],
-    requiresVisibleSetup: false,
-    displayName: 'My Server',
-    transportVisibility: { requirement: 'hidden' },
-    onSetup: async () => {
-      // Handle configuration logic
-    }
+  // === SETUP PHASE LOGIC ===
+  await transport.prepareSetup();
+  const sessionId = transport.sessionId; // Use this to scope localStorage
+
+  // ... (Optional: show UI, get user input, etc.) ...
+
+  // Example: after user clicks a "Save" button
+  const userApiKey = '...'; // Get from user input
+  localStorage.setItem(`my-server-api-key-${sessionId}`, userApiKey);
+
+  await transport.completeSetup({
+    displayName: 'My New Awesome Server',
+    transportVisibility: { requirement: 'hidden' }, // or 'optional'/'required'
+    ephemeralMessage: 'Configuration saved!'
   });
-  await setupHandler.start();
+
 } else {
-  const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-  
+  // === TRANSPORT PHASE LOGIC ===
+  await transport.prepareToConnect();
+  const sessionId = transport.sessionId;
+  const apiKey = localStorage.getItem(`my-server-api-key-${sessionId}`);
+
+  if (!apiKey) {
+    // If config is missing, we can force a re-setup
+    // This requires a `SetupRequired` message implementation (see protocol).
+    console.error("API Key not found for session", sessionId);
+    // In a real app, you might send a SetupRequired message here.
+    return;
+  }
+
+  const server = new McpServer({ name: 'my-new-server', version: '1.0.0' });
+
   server.registerTool('my_tool', {
-    title: 'My Tool',
-    description: 'Does something useful',
-    inputSchema: { param: z.string() }
-  }, async ({ param }) => {
-    // Tool implementation
+    title: 'My Awesome Tool',
+    description: 'Does something awesome. Example: someValue',
+    inputSchema: { some_param: z.string() }
+  }, async ({ some_param }) => {
+    // Use apiKey and some_param to do work
+    const result = `Used API key ending in ...${apiKey.slice(-4)} with param: ${some_param}`;
+    return { content: [{ type: 'text', text: result }] };
   });
-  
-  const transport = new PostMessageServerTransport({
-    allowedOrigins: ['http://localhost:3000']
-  });
-  
+
   await server.connect(transport);
+  console.log('My New Server is connected and ready.');
 }
 ```
 
-## Client Integration
+## 9. Common Issues & Gotchas
 
-To integrate with the client:
-1. Add server URL to `SERVER_EXAMPLES` in `demo-client/app.tsx`
-2. Client handles setup phase automatically
-3. Tools appear dynamically in the UI after connection
-4. Tool parameters are generated from MCP schema
-
-## Development Patterns
-
-### Tool Parameter Schema Design
-
-When designing MCP tool input schemas, be careful with examples:
-- **Use singular examples only** (not arrays) in schema descriptions 
-- The demo client parses `Example: value` from descriptions to populate form fields
-- Arrays in examples break the string parsing logic
-- Generate examples by introspecting actual user data when possible
-
-Example:
-```typescript
-// Good - singular example that can be parsed
-path: z.string().describe('JSONPath expression. Example: $.users[0].name')
-
-// Bad - would break client form parsing  
-paths: z.array(z.string()).describe('JSONPath expressions. Example: ["$.users", "$.data"]')
-```
-
-### WindowControl Pattern
-Use the `WindowControl` interface to abstract iframe/popup management:
-```typescript
-const windowControl = new IframeWindowControl({
-  iframe: myIframe,
-  setVisible: (visible) => { /* handle visibility */ },
-  onNavigate: (url) => { /* handle navigation */ },
-  onLoad: () => { /* handle load */ }
-});
-```
-
-### Progressive Enhancement
-Servers should work both headless and with rich UI:
-- Start with minimal viable functionality
-- Add UI progressively based on visibility requirements
-- Use `requiresVisibleSetup` only when absolutely necessary
-
-### Error Handling
-- Use try/catch blocks around all async operations
-- Provide user-friendly error messages
-- Log detailed errors to console for debugging
-- Handle network failures gracefully
-
-## Common Issues
-
-- **Origin Mismatches**: Ensure `allowedOrigins` matches client domain exactly
-- **Iframe Sandboxing**: Include `allow-scripts allow-same-origin allow-forms` in sandbox
-- **Phase Detection**: Use `getServerPhase()` instead of manual URL parsing
-- **Message Timing**: Wait for handshake completion before sending MCP messages
-- **Cleanup**: Always call cleanup functions when destroying transports
-
-## Testing Strategy
-
-The demo client serves as the primary testing environment:
-1. Start demo with `bun run demo`
-2. Add server URL to client
-3. Test setup phase (configuration UI if needed)
-4. Test transport phase (tool calls, real-time updates)
-5. Test error conditions (network failures, auth errors)
-6. Test multiple concurrent connections
+-   **Origin Mismatches**: The most common error. Ensure `allowedOrigins` in the server's `PostMessageInnerControl` exactly matches the client's origin, including protocol (`http`/`https`), domain, and port.
+-   **Message Timing Race Condition**: The Outer Frame must add its `'message'` event listener *before* it sets the `src` of the iframe. Otherwise, the Inner Frame's initial handshake message may be missed. The demo client and SDK handle this correctly.
+-   **Blocked Popups**: If using `PopupWindowControl`, browsers may block the popup. This must be initiated from a user gesture (e.g., a button click).
+-   **Broken Tool Forms**: The demo client parses `Example: value` from a tool's `description` to pre-fill forms. If this parsing fails, the form might be empty. Ensure examples are simple and singular.
+-   **State Lost on Reload**: Server state must be persisted, typically in `localStorage`. This state **must be keyed by the `sessionId`** provided by the client during the handshake to ensure data is correctly isolated and retrieved across page loads.
