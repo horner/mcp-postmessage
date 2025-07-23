@@ -356,28 +356,3 @@ export function isMCPMessage(message: any): message is MCPMessage {
   return message?.type === 'MCP_MESSAGE';
 }
 
-// ============================================================================
-// VERSION UTILITIES
-// ============================================================================
-
-/**
- * Check if a version falls within a supported range using semantic versioning
- */
-export function isVersionInRange(version: string, min: string, max: string): boolean {
-  // Simple string comparison for now - in production would use semver library
-  return version >= min && version <= max;
-}
-
-/**
- * Select the highest compatible version from client and server ranges
- */
-export function negotiateVersion(
-  serverMin: string, 
-  serverMax: string, 
-  clientSupportedVersions: string[]
-): string | null {
-  const compatible = clientSupportedVersions.filter(v => 
-    isVersionInRange(v, serverMin, serverMax)
-  );
-  return compatible.length > 0 ? compatible.sort().reverse()[0] : null;
-}

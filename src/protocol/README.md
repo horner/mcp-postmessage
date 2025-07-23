@@ -470,17 +470,19 @@ The MCPMessage wrapper allows the transport to distinguish MCP protocol messages
 
 ### Version Negotiation
 
-The protocol supports range-based version negotiation during the setup handshake to enable backward and forward compatibility:
+The protocol supports range-based version negotiation during the setup handshake to enable backward and forward compatibility using semantic versioning:
 
 1. **Inner Frame declares range**: Sends `minProtocolVersion` and `maxProtocolVersion` in `SetupHandshakeMessage`
-2. **Outer Frame selects version**: Chooses a compatible version within the range and responds with `protocolVersion` in `SetupHandshakeReplyMessage`  
-3. **Version validation**: Both parties validate the agreed version using semantic versioning rules
+2. **Outer Frame selects version**: Chooses the highest compatible version within the range and responds with `protocolVersion` in `SetupHandshakeReplyMessage`  
+3. **Semantic version validation**: Both parties validate the agreed version using [semantic versioning](https://semver.org/) rules for proper compatibility checking
 4. **Compatibility check**: If no compatible version exists, the outer frame rejects the handshake with `VERSION_MISMATCH` error
 
+**Version Comparison**: The protocol uses proper semantic versioning comparison rather than string comparison, ensuring correct handling of version ranges like `1.0.0` through `1.2.5`.
+
 **Example Version Negotiation:**
-- Inner Frame supports: `minProtocolVersion: "1.0"`, `maxProtocolVersion: "1.0"`
-- Outer Frame supports: `1.0` through `1.0`  
-- Agreed version: `"1.0"` (current protocol version)
+- Inner Frame supports: `minProtocolVersion: "1.0.0"`, `maxProtocolVersion: "1.2.0"`
+- Outer Frame supports: `["1.1.0", "1.3.0", "2.0.0"]`  
+- Agreed version: `"1.1.0"` (highest version within the Inner Frame's supported range)
 
 ### Permission Declaration System
 

@@ -169,6 +169,11 @@ DESCRIPTION: [describe the user's emotion in <12 words that read like a line of 
       const text = response.text;
       console.log('[CAMERA-TESTER] Gemini response:', text);
       
+      if (!text) {
+        console.warn('[CAMERA-TESTER] Gemini response text is empty, falling back to random');
+        throw new Error('Empty Gemini response');
+      }
+      
       // Parse the response
       const emotionMatch = text.match(/EMOTION:\s*(\w+)/i);
       const confidenceMatch = text.match(/CONFIDENCE:\s*(\d+)/i);

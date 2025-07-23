@@ -22,9 +22,9 @@ import {
   PermissionRequirement,
   isMCPMessage,
   isSetupMessage,
-  isTransportMessage,
-  isVersionInRange
+  isTransportMessage
 } from '$protocol/types.js';
+import { isVersionInRange } from '$protocol/logic.js';
 import { createLogger } from '$sdk/utils/logger.js';
 import { withTimeout } from '$sdk/utils/helpers.js';
 
