@@ -43,7 +43,7 @@ trap cleanup SIGINT SIGTERM
 
 # Start demo servers using Bun's multi-page support
 echo "Starting all servers on port 3001..."
-bun src/demo/servers/**/index.html --port 3001 --hot &
+bun --port 3001 src/demo/servers/**/index.html --hot &
 SERVER_PID=$!
 echo "$SERVER_PID" > "/tmp/mcp-demo-servers.pid"
 
