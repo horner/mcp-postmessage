@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical MCP Server - PostMessage Transport Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border-left: 4px solid #4f46e5;
+        }
+
+        .header h1 {
+            color: #4f46e5;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        .demo-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #4338ca;
+        }
+
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            height: calc(100vh - 180px);
+        }
+
+        .server-panel {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            background: #f8fafc;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .panel-content {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .client-panel {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .iframe-container {
+            height: 100%;
+            position: relative;
+        }
+
+        #mcp-client-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #fff;
+        }
+
+        .status-indicator {
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .status-indicator.waiting {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fbbf24;
+        }
+
+        .status-indicator.handshake {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #3b82f6;
+        }
+
+        .status-indicator.connected {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+
+        .status-indicator.processing {
+            background: #e0e7ff;
+            color: #3730a3;
+            border: 1px solid #6366f1;
+        }
+
+        .status-indicator.simulation {
+            background: #f3e8ff;
+            color: #6b21a8;
+            border: 1px solid #8b5cf6;
+        }
+
+        .status-indicator.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #ef4444;
+        }
+
+        .patient-details {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .patient-details p {
+            margin-bottom: 8px;
+        }
+
+        .medication-item, .allergy-item, .history-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+        }
+
+        .medication-item.active {
+            border-left: 4px solid #10b981;
+        }
+
+        .medication-item.discontinued {
+            border-left: 4px solid #f59e0b;
+            opacity: 0.8;
+        }
+
+        .med-header, .allergy-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .med-id {
+            font-size: 12px;
+            color: #6b7280;
+            font-family: monospace;
+        }
+
+        .status-badge {
+            background: #f59e0b;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .severity-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .severity-badge.mild {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .severity-badge.moderate {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .severity-badge.severe {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .severity-badge.life-threatening {
+            background: #991b1b;
+            color: white;
+        }
+
+        .allergy-item.severity-severe,
+        .allergy-item.severity-life-threatening {
+            border-left: 4px solid #ef4444;
+        }
+
+        .allergy-item.severity-moderate {
+            border-left: 4px solid #f59e0b;
+        }
+
+        .allergy-item.severity-mild {
+            border-left: 4px solid #10b981;
+        }
+
+        .med-details, .allergy-details {
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        .med-details p, .allergy-details p {
+            margin-bottom: 5px;
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .history-date {
+            font-size: 12px;
+            color: #6b7280;
+            font-family: monospace;
+        }
+
+        .history-type {
+            background: #e2e8f0;
+            color: #1e293b;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .history-type.medication_added {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .history-type.medication_edited {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .history-type.medication_discontinued {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .history-type.medication_deleted {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .history-type.allergy_added {
+            background: #f3e8ff;
+            color: #6b21a8;
+        }
+
+        .history-description {
+            color: #374151;
+            margin-bottom: 5px;
+        }
+
+        .history-performer {
+            font-size: 12px;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .no-data {
+            color: #9ca3af;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h4 {
+            color: #1e293b;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            
+            .server-panel {
+                max-height: 50vh;
+            }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: #6b7280;
+        }
+
+        .architecture-note {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .architecture-note strong {
+            color: #1e40af;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏥 Medical MCP Server - PostMessage Transport Demo</h1>
+            <p>This demo showcases a PostMessage transport for MCP where the parent page acts as an MCP server providing medical tools, while the embedded iframe acts as an MCP client with a chat interface.</p>
+            
+            <div class="architecture-note">
+                <strong>Architecture:</strong> Parent page (this page) implements medical tools and maintains patient data. 
+                The embedded iframe provides a secure chat interface that can call tools via PostMessage communication.
+            </div>
+
+            <div class="demo-controls">
+                <button id="run-simulation-btn" class="btn">▶️ Run Simulation</button>
+                <span style="margin-left: 15px; color: #6b7280; font-size: 14px;">
+                    Click to run an automated demo showing the medical tools in action
+                </span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="server-panel">
+                <div class="panel-header">
+                    🖥️ MCP Server (Parent Page) - Medical Tools & Data
+                </div>
+                <div class="panel-content">
+                    <div id="connection-status">
+                        <div class="status-indicator waiting">
+                            <strong>Status:</strong> Initializing...
+                        </div>
+                    </div>
+
+                    <div class="section" id="patient-info">
+                        <div class="loading">Loading patient information...</div>
+                    </div>
+
+                    <div class="section" id="medications-list">
+                        <div class="loading">Loading medications...</div>
+                    </div>
+
+                    <div class="section" id="allergies-list">
+                        <div class="loading">Loading allergies...</div>
+                    </div>
+
+                    <div class="section" id="medical-history">
+                        <div class="loading">Loading medical history...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="client-panel">
+                <div class="panel-header">
+                    💬 MCP Client (Embedded Iframe) - Chat Interface
+                </div>
+                <div class="iframe-container">
+                    <iframe 
+                        id="mcp-client-iframe" 
+                        src="http://localhost:3101"
+                        sandbox="allow-scripts allow-same-origin allow-forms"
+                        title="MCP Client Chat Interface">
+                        <p>Your browser does not support iframes. Please use a modern browser to view this demo.</p>
+                    </iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+</body>
+</html>
